@@ -1,0 +1,28 @@
+moonship:
+  algo:
+    engine: SpreadBet
+  net:
+    client: moonship.mybroker.MyBrokerClient
+    timeout: 10000
+  logging:
+    root:
+      handlers:
+        - stdout
+        - file
+    loggers:
+      moonship:
+        level: DEBUG
+    handlers:
+      stdout:
+        class: logging.StreamHandler
+        formatter: log
+        stream: ext://sys.stdout
+      file:
+        class: logging.handlers.RotatingFileHandler
+        formatter: log
+        filename: log/moonship.log
+        maxBytes: 1024
+        backupCount: 3
+    formatters:
+      log:
+        format: "[%(asctime)s] %(levelname)s - %(name)s: %(message)s"
