@@ -22,6 +22,46 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import moonship.launcher
+from dataclasses import dataclass, field
+from datetime import datetime as Timestamp
+from decimal import Decimal as Amount
+from enum import Enum
 
-moonship.launcher.launch()
+
+class MarketStatus(Enum):
+    DISABLED = 0
+    ACTIVE = 1
+    POST_ONLY = 2
+
+
+@dataclass()
+class Ticker:
+    timestamp: Timestamp
+    symbol: str
+    ask_price: Amount
+    bid_price: Amount
+    current_price: Amount
+    status: MarketStatus
+
+    @property
+    def spread(self) -> Amount:
+        return self.ask_price - self.bid_price
+
+
+class OrderStatus(Enum):
+    PENDING = 0
+    COMPLETE = 1
+
+
+@dataclass()
+class Order:
+    id: str
+    symbol: str
+    price: Amount
+    volume: Amount
+    volume_filled: Amount = Amount(0)
+    is_buy: bool = True
+    is_limit_order: bool = True
+    status: OrderStatus = OrderStatus.PENDING
+    created_timestamp: Timestamp = None
+

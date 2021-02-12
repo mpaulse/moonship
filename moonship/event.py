@@ -22,6 +22,44 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import moonship.launcher
+from data import *
 
-moonship.launcher.launch()
+
+@dataclass()
+class MarketEvent:
+    timestamp: Timestamp
+    symbol: str
+
+
+@dataclass()
+class TickerEvent(MarketEvent):
+    ticker: Ticker
+
+
+@dataclass()
+class OrderBookInitEvent(MarketEvent):
+    status: MarketStatus
+    orders: list[Order] = field(default_factory=list)
+
+
+@dataclass()
+class OrderBookEntryAddedEvent(MarketEvent):
+    order: Order
+
+
+@dataclass()
+class OrderBookEntryRemovedEvent(MarketEvent):
+    order_id: str
+
+
+@dataclass()
+class TradeEvent(MarketEvent):
+    price: Amount
+    volume: Amount
+    maker_order_id: str
+    taker_order_id: str
+
+
+@dataclass()
+class MarketStatusEvent(MarketEvent):
+    status: MarketStatus
