@@ -62,6 +62,7 @@ def launch():
     configure_logging(config)
     logger.info(
         """Launching...
+        
             __  ___                       __    _     
            /  |/  /___  ____  ____  _____/ /_  (_)___ 
           / /|_/ / __ \/ __ \/ __ \/ ___/ __ \/ / __ \\
