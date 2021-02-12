@@ -55,10 +55,20 @@ async def run(app_config: dict) -> None:
 
 
 def launch():
-    with open("config.yml", "r") as config_file:
-        config = yaml.safe_load(config_file)
+    if os.path.isfile("config.yml"):
+        with open("config.yml", "r") as config_file:
+            config = yaml.safe_load(config_file)
+
     configure_logging(config)
-    logger.info("Launching Moonship...")
+    logger.info(
+        """Launching...
+            __  ___                       __    _     
+           /  |/  /___  ____  ____  _____/ /_  (_)___ 
+          / /|_/ / __ \/ __ \/ __ \/ ___/ __ \/ / __ \\
+         / /  / / /_/ / /_/ / / / (__  ) / / / / /_/ /
+        /_/  /_/\____/\____/_/ /_/____/_/ /_/_/ .___/ 
+                                             /_/      
+        """)
     asyncio.run(run(config))
 
 
