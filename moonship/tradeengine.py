@@ -22,6 +22,18 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import moonship
+import logging
+import moonship.client.luno
 
-moonship.launch()
+from .client.interface import *
+
+logger = logging.getLogger(__name__)
+
+
+class TradeEngine:
+
+    def __init__(self, config: dict):
+        self.config = config
+
+    async def start(self):
+        logger.info("Starting")

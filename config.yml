@@ -26,6 +26,8 @@ moonship:
     loggers:
       moonship:
         level: DEBUG
+      asyncio:
+        level: CRITICAL
     handlers:
       stdout:
         class: logging.StreamHandler

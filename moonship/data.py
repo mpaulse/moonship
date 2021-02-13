@@ -22,10 +22,26 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from dataclasses import dataclass, field
-from datetime import datetime as Timestamp
+import abc
+
+from dataclasses import dataclass
+from datetime import datetime as Timestamp, timezone
 from decimal import Decimal as Amount
 from enum import Enum
+
+__all__ = [
+    "Timestamp",
+    "Amount",
+    "MarketStatus",
+    "Ticker",
+    "OrderAction",
+    "OrderStatus",
+    "MarketOrder",
+    "LimitOrder",
+    "FullOrderDetails",
+    "to_amount",
+    "to_utc_timestamp"
+]
 
 
 class MarketStatus(Enum):
@@ -48,20 +64,48 @@ class Ticker:
         return self.ask_price - self.bid_price
 
 
+class OrderAction(Enum):
+    BUY = 0
+    SELL = 1
+
+
 class OrderStatus(Enum):
     PENDING = 0
     COMPLETE = 1
+    CANCELLED = 2
 
 
 @dataclass()
-class Order:
+class AbstractOrder(abc.ABC):
     id: str
     symbol: str
+    action: OrderAction
+
+
+@dataclass()
+class MarketOrder(AbstractOrder):
+    amount: Amount
+
+
+@dataclass()
+class LimitOrder(AbstractOrder):
     price: Amount
     volume: Amount
-    volume_filled: Amount = Amount(0)
-    is_buy: bool = True
-    is_limit_order: bool = True
+
+
+@dataclass()
+class FullOrderDetails(AbstractOrder):
+    base_amount_filled: Amount = Amount(0)
+    counter_amount_filled: Amount = Amount(0)
+    limit_price: Amount = Amount(0)
+    limit_volume: Amount = Amount(0)
     status: OrderStatus = OrderStatus.PENDING
     created_timestamp: Timestamp = None
 
+
+def to_amount(s: str) -> Amount:
+    return Amount(s) if s is not None else Amount(0)
+
+
+def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:
+    return Timestamp.fromtimestamp(utc_ts_msec / 1000, timezone.utc)

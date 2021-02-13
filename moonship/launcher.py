@@ -27,9 +27,12 @@ import logging
 import logging.config
 import os
 import os.path
+import sys
 import yaml
 
-logger = logging.getLogger(__name__)
+from .tradeengine import TradeEngine
+
+logger = logging.getLogger(__package__)
 
 
 def load_config() -> dict:
@@ -37,8 +40,9 @@ def load_config() -> dict:
         "moonship": {
         }
     }
-    if os.path.isfile("config.yml"):
-        with open("config.yml", "r") as config_file:
+    config_file = "config.yml" if len(sys.argv) < 2 else sys.argv[1]
+    if os.path.isfile(config_file):
+        with open(config_file, "r") as config_file:
             config = yaml.safe_load(config_file)
     return config
 
@@ -85,13 +89,10 @@ def configure_logging(app_config: dict) -> None:
     logging.config.dictConfig(logging_config)
 
 
-async def run(config: dict) -> None:
-    logger.info("To The Moon!")
-
-
 def launch():
     config = load_config()
     configure_logging(config)
+
     logger.info(
         """Launching...
         
@@ -102,7 +103,19 @@ def launch():
         /_/  /_/\____/\____/_/ /_/____/_/ /_/_/ .___/ 
                                              /_/      
         """)
-    asyncio.run(run(config))
+
+    event_loop = asyncio.get_event_loop()
+
+    engine = TradeEngine(config)
+    event_loop.create_task(engine.start())
+
+    try:
+        event_loop.run_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        logger.info("Shutting down.")
+        event_loop.close()
 
 
 if __name__ == "__main__":

@@ -22,7 +22,58 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from data import *
+import abc
+
+from ..data import *
+from dataclasses import dataclass, field
+from typing import Union
+
+__all__ = [
+    "MarketClient",
+    "MarketFeedSubscriber",
+    "MarketFeed",
+    "MarketEvent",
+    "TickerEvent",
+    "OrderBookInitEvent",
+    "OrderBookEntryAddedEvent",
+    "OrderBookEntryRemovedEvent",
+    "TradeEvent",
+    "MarketStatusEvent",
+    "MarketClientException"
+]
+
+
+class MarketClient(abc.ABC):
+
+    @abc.abstractmethod
+    def __init__(self, market_name: str, app_config: dict):
+        pass
+
+    async def connect(self):
+        pass
+
+    async def close(self):
+        pass
+
+    @abc.abstractmethod
+    async def get_tickers(self) -> list[Ticker]:
+        pass
+
+    @abc.abstractmethod
+    async def get_ticker(self, symbol: str) -> Ticker:
+        pass
+
+    @abc.abstractmethod
+    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+        pass
+
+    @abc.abstractmethod
+    async def get_order(self, order_id: str) -> FullOrderDetails:
+        pass
+
+    @abc.abstractmethod
+    async def cancel_order(self, order_id: str) -> bool:
+        pass
 
 
 @dataclass()
@@ -39,12 +90,12 @@ class TickerEvent(MarketEvent):
 @dataclass()
 class OrderBookInitEvent(MarketEvent):
     status: MarketStatus
-    orders: list[Order] = field(default_factory=list)
+    orders: list[LimitOrder] = field(default_factory=list)
 
 
 @dataclass()
 class OrderBookEntryAddedEvent(MarketEvent):
-    order: Order
+    order: LimitOrder
 
 
 @dataclass()
@@ -54,8 +105,8 @@ class OrderBookEntryRemovedEvent(MarketEvent):
 
 @dataclass()
 class TradeEvent(MarketEvent):
-    price: Amount
-    volume: Amount
+    base_amount: Amount
+    counter_amount: Amount
     maker_order_id: str
     taker_order_id: str
 
@@ -63,3 +114,34 @@ class TradeEvent(MarketEvent):
 @dataclass()
 class MarketStatusEvent(MarketEvent):
     status: MarketStatus
+
+
+class MarketFeedSubscriber(abc.ABC):
+
+    @abc.abstractmethod
+    async def on_market_event(self, e: MarketEvent) -> None:
+        pass
+
+
+class MarketFeed(abc.ABC):
+    subscribers: list[MarketFeedSubscriber] = []
+
+    @abc.abstractmethod
+    def __init__(self, symbol: str, market_name: str, app_config: dict):
+        pass
+
+    async def connect(self):
+        pass
+
+    async def close(self):
+        pass
+
+    def subscribe(self, subscriber) -> None:
+        self.subscribers.append(subscriber)
+
+    def unsubscribe(self, subscriber) -> None:
+        self.subscribers.remove(subscriber)
+
+
+class MarketClientException(Exception):
+    pass
