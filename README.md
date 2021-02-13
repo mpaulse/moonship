@@ -1,10 +1,8 @@
 # Moonship
 
-Moonship is a high-frequency forex/crypto trading engine that implements various
-algorithms and strategies.
+Moonship is a high-frequency forex/crypto trading application that provides the
+core application framework and market interfaces.
 
-It provides the core application framework and trading logic. Modules that
-interface with the forex/crypto exchange to receive live market data and
-to execute trades are closed-source. 
+Trading algorithms and strategies are implemented as plugins and are proprietary.
 
 Fly me **To The Moon!**

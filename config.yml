@@ -1,9 +1,23 @@
 moonship:
-  algo:
-    engine: SpreadBet
-  net:
-    client: moonship.mybroker.MyBrokerClient
-    timeout: 10000
+
+  strategies:
+    mystrategy:
+      algo: moonship.algo.MyAlgo
+      market: bitcoin
+    other:
+      algo: moonship.algo.OtherAlgo
+      market: other
+
+  markets:
+    client: moonship.mymarket.MyDefaultMarketClient
+    bitcoin:
+      symbol: BTCUSD
+      feed: moonship.mymarket.MyMarketDataFeed
+    other:
+      symbol: OTHER
+      client: moonship.mymarket.MyOtherMarketClient
+      feed: moonship.mymarket.MyOtherDataFeed
+
   logging:
     root:
       handlers:
