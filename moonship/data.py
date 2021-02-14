@@ -30,15 +30,15 @@ from decimal import Decimal as Amount
 from enum import Enum
 
 __all__ = [
-    "Timestamp",
     "Amount",
+    "FullOrderDetails",
+    "LimitOrder",
+    "MarketOrder",
     "MarketStatus",
-    "Ticker",
     "OrderAction",
     "OrderStatus",
-    "MarketOrder",
-    "LimitOrder",
-    "FullOrderDetails",
+    "Ticker",
+    "Timestamp",
     "to_amount",
     "to_utc_timestamp"
 ]

@@ -3,10 +3,13 @@ moonship:
   strategies:
     mystrategy:
       algo: moonship.algo.MyAlgo
-      market: bitcoin
+      markets:
+        - bitcoin
     other:
       algo: moonship.algo.OtherAlgo
-      market: other
+      markets:
+        - bitcoin
+        - other
 
   markets:
     client: moonship.mymarket.MyDefaultMarketClient

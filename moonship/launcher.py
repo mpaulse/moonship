@@ -26,29 +26,17 @@ import asyncio
 import logging
 import logging.config
 import os
-import os.path
 import sys
-import yaml
 
-from .tradeengine import TradeEngine
+from .config import *
+from .engine import TradeEngine
+from .error import *
 
 logger = logging.getLogger(__package__)
 
 
-def load_config() -> dict:
-    config = {
-        "moonship": {
-        }
-    }
-    config_file = "config.yml" if len(sys.argv) < 2 else sys.argv[1]
-    if os.path.isfile(config_file):
-        with open(config_file, "r") as config_file:
-            config = yaml.safe_load(config_file)
-    return config
-
-
-def configure_logging(app_config: dict) -> None:
-    logging_config = {
+def configure_logging(app_config: Config) -> None:
+    logging_config = Config({
         "version": 1,
         "root": {
             "handlers": ["stdout"]
@@ -56,6 +44,9 @@ def configure_logging(app_config: dict) -> None:
         "loggers": {
             "moonship": {
                 "level": "INFO"
+            },
+            "asyncio": {
+                "level": "CRITICAL"
             }
         },
         "handlers": {
@@ -71,26 +62,23 @@ def configure_logging(app_config: dict) -> None:
             }
         },
         "disable_existing_loggers": False
-    }
-
-    config = app_config.get("moonship").get("logging")
-    if config is not None:
+    })
+    config = app_config.get("moonship.logging")
+    if isinstance(config, Config):
         logging_config |= config
-
-    handlers: dict = logging_config.get("handlers")
-    if handlers is not None:
-        for handler in handlers.values():
-            log_file_path = handler.get("filename")
-            if log_file_path is not None:
+    handlers = logging_config.get("handlers")
+    if isinstance(handlers, Config):
+        for handler_name in handlers.children_keys:
+            log_file_path = handlers.get(f"{handler_name}.filename")
+            if isinstance(log_file_path, str):
                 log_dir = os.path.dirname(log_file_path)
                 if not os.path.isdir(log_dir):
                     os.makedirs(log_dir, exist_ok=True)
-
-    logging.config.dictConfig(logging_config)
+    logging.config.dictConfig(logging_config.dict)
 
 
 def launch():
-    config = load_config()
+    config = Config.load_from_file("config.yml" if len(sys.argv) < 2 else sys.argv[1])
     configure_logging(config)
 
     logger.info(
@@ -105,12 +93,12 @@ def launch():
         """)
 
     event_loop = asyncio.get_event_loop()
-
-    engine = TradeEngine(config)
-    event_loop.create_task(engine.start())
-
     try:
+        engine = TradeEngine(config)
+        event_loop.create_task(engine.start())
         event_loop.run_forever()
+    except StartUpException:
+        logger.exception("Critical start-up error!")
     except KeyboardInterrupt:
         pass
     finally:

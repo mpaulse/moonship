@@ -22,18 +22,42 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import asyncio
 import logging
-import moonship.client.luno
 
-from .client.interface import *
+from .algo import *
+from .config import *
+from .error import *
+from .market import *
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
-class TradeEngine:
+class Strategy:
+    def __init__(self, name: str, algo: TradingAlgo):
+        self.name = name
+        self.algo = algo
 
-    def __init__(self, config: dict):
-        self.config = config
+
+class TradeEngine:
+    markets: dict[str, Market] = {}
+    strategies: dict[str, Strategy] = {}
+
+    def __init__(self, config: Config) -> None:
+        self.init_markets(config)
+
+    def init_markets(self, config: Config) -> None:
+        market_config = config.get("moonship.markets")
+        if not isinstance(market_config, Config):
+            raise StartUpException("No market configuration specified")
 
     async def start(self):
         logger.info("Starting")
+
+    async def stop(self):
+        logging.info("Stopping")
+        pass
+
+    def instantiate(self, class_name):
+        pass

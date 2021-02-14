@@ -22,9 +22,9 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from .algo import *
-from .config import *
-from .data import *
-from .error import *
-from .launcher import launch
-from .market import *
+class StartUpException(Exception):
+    pass
+
+
+class MarketClientException(Exception):
+    pass

@@ -27,8 +27,10 @@ import aiohttp
 import asyncio
 import logging
 
-from .interface import *
+from ..config import *
 from ..data import *
+from ..error import *
+from ..market import *
 from typing import Optional, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
@@ -57,16 +59,13 @@ def to_amount_str(a: Amount) -> str:
 class AbstractLunoClient(abc.ABC):
     http_session: Optional[aiohttp.ClientSession]
 
-    def __init__(self, market_name: str, app_config: dict):
-        config = app_config.get("moonship").get("luno")
-        if config is None:
-            raise MarketClientException("No Luno configuration specified")
-        self.key_id = config.get("key_id")
-        if self.key_id is None:
-            raise MarketClientException("Luno API key ID not configured")
-        self.key_secret = config.get("key_secret")
-        if self.key_secret is None:
-            raise MarketClientException("Luno API key secret not configured")
+    def __init__(self, market_name: str, app_config: Config):
+        self.key_id = app_config.get("moonship.luno.key_id")
+        if not isinstance(self.key_id, str):
+            raise StartUpException("Luno API key ID not configured")
+        self.key_secret = app_config.get("moonship.luno.key_secret")
+        if not isinstance(self.key_secret, str):
+            raise StartUpException("Luno API key secret not configured")
 
     @abc.abstractmethod
     async def connect(self):
@@ -176,9 +175,9 @@ class LunoClient(AbstractLunoClient, MarketClient):
 
 class LunoMarketFeed(AbstractLunoClient, MarketFeed):
 
-    def __init__(self, market_name: str, app_config: dict):
+    def __init__(self, symbol: str, market_name: str, app_config: Config):
         super().__init__(market_name, app_config)
-        self.symbol = app_config.get("moonship").get("markets").get(market_name).get("symbol")
+        self.symbol = symbol
 
     async def connect(self):
         self.http_session = aiohttp.ClientSession()
@@ -266,6 +265,3 @@ class LunoMarketFeed(AbstractLunoClient, MarketFeed):
                     taker_order_id=data.get("taker_order_id")))
         return trades
 
-    def raise_event(self, event: MarketEvent) -> None:
-        for sub in self.subscribers:
-            asyncio.create_task(sub.on_market_event(event))

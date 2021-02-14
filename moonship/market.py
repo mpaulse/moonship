@@ -23,30 +23,32 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import abc
+import asyncio
 
-from ..data import *
+from .config import *
+from .data import *
 from dataclasses import dataclass, field
 from typing import Union
 
 __all__ = [
+    "Market",
     "MarketClient",
-    "MarketFeedSubscriber",
     "MarketFeed",
     "MarketEvent",
-    "TickerEvent",
-    "OrderBookInitEvent",
+    "MarketFeedSubscriber",
+    "MarketStatusEvent",
     "OrderBookEntryAddedEvent",
     "OrderBookEntryRemovedEvent",
+    "OrderBookInitEvent",
+    "TickerEvent",
     "TradeEvent",
-    "MarketStatusEvent",
-    "MarketClientException"
 ]
 
 
 class MarketClient(abc.ABC):
 
     @abc.abstractmethod
-    def __init__(self, market_name: str, app_config: dict):
+    def __init__(self, market_name: str, app_config: Config):
         pass
 
     async def connect(self):
@@ -116,10 +118,24 @@ class MarketStatusEvent(MarketEvent):
     status: MarketStatus
 
 
-class MarketFeedSubscriber(abc.ABC):
+class MarketFeedSubscriber:
 
-    @abc.abstractmethod
-    async def on_market_event(self, e: MarketEvent) -> None:
+    async def on_ticker(self, event: TickerEvent) -> None:
+        pass
+
+    async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
+        pass
+
+    async def on_order_book_entry_added(self, event: OrderBookEntryAddedEvent) -> None:
+        pass
+
+    async def on_order_book_entry_removed(self, event: OrderBookEntryRemovedEvent) -> None:
+        pass
+
+    async def on_trade(self, event: TradeEvent) -> None:
+        pass
+
+    async def on_market_status_update(self, event: MarketStatusEvent) -> None:
         pass
 
 
@@ -127,7 +143,7 @@ class MarketFeed(abc.ABC):
     subscribers: list[MarketFeedSubscriber] = []
 
     @abc.abstractmethod
-    def __init__(self, symbol: str, market_name: str, app_config: dict):
+    def __init__(self, symbol: str, market_name: str, app_config: Config):
         pass
 
     async def connect(self):
@@ -142,6 +158,28 @@ class MarketFeed(abc.ABC):
     def unsubscribe(self, subscriber) -> None:
         self.subscribers.remove(subscriber)
 
+    def raise_event(self, event: MarketEvent) -> None:
+        for sub in self.subscribers:
+            func = None
+            if isinstance(event, OrderBookInitEvent):
+                func = sub.on_order_book_init(event)
+            elif isinstance(event, OrderBookEntryAddedEvent):
+                func = sub.on_order_book_entry_added(event)
+            elif isinstance(event, OrderBookEntryRemovedEvent):
+                func = sub.on_order_book_entry_removed(event)
+            elif isinstance(event, TradeEvent):
+                func = sub.on_trade(event)
+            elif isinstance(event, MarketStatusEvent):
+                func = sub.on_market_status_update(event)
+            if func is not None:
+                asyncio.create_task(func)
 
-class MarketClientException(Exception):
-    pass
+
+class Market:
+    def __init__(self, name: str, symbol: str, client: MarketClient, feed: MarketFeed):
+        self.name = name
+        self.symbol = symbol
+        self._client = client
+        self._feed = feed
+
+
