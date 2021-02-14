@@ -26,5 +26,5 @@ class StartUpException(Exception):
     pass
 
 
-class MarketClientException(Exception):
+class MarketException(Exception):
     pass

@@ -24,9 +24,11 @@
 
 import abc
 import asyncio
+import sortedcontainers
 
 from .config import *
 from .data import *
+from .error import *
 from dataclasses import dataclass, field
 from typing import Union
 
@@ -37,8 +39,9 @@ __all__ = [
     "MarketEvent",
     "MarketFeedSubscriber",
     "MarketStatusEvent",
-    "OrderBookEntryAddedEvent",
-    "OrderBookEntryRemovedEvent",
+    "OrderBookEntry",
+    "OrderBookItemAddedEvent",
+    "OrderBookItemRemovedEvent",
     "OrderBookInitEvent",
     "TickerEvent",
     "TradeEvent",
@@ -96,12 +99,12 @@ class OrderBookInitEvent(MarketEvent):
 
 
 @dataclass()
-class OrderBookEntryAddedEvent(MarketEvent):
+class OrderBookItemAddedEvent(MarketEvent):
     order: LimitOrder
 
 
 @dataclass()
-class OrderBookEntryRemovedEvent(MarketEvent):
+class OrderBookItemRemovedEvent(MarketEvent):
     order_id: str
 
 
@@ -126,10 +129,10 @@ class MarketFeedSubscriber:
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
         pass
 
-    async def on_order_book_entry_added(self, event: OrderBookEntryAddedEvent) -> None:
+    async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
         pass
 
-    async def on_order_book_entry_removed(self, event: OrderBookEntryRemovedEvent) -> None:
+    async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
         pass
 
     async def on_trade(self, event: TradeEvent) -> None:
@@ -163,10 +166,10 @@ class MarketFeed(abc.ABC):
             func = None
             if isinstance(event, OrderBookInitEvent):
                 func = sub.on_order_book_init(event)
-            elif isinstance(event, OrderBookEntryAddedEvent):
-                func = sub.on_order_book_entry_added(event)
-            elif isinstance(event, OrderBookEntryRemovedEvent):
-                func = sub.on_order_book_entry_removed(event)
+            elif isinstance(event, OrderBookItemAddedEvent):
+                func = sub.on_order_book_item_added(event)
+            elif isinstance(event, OrderBookItemRemovedEvent):
+                func = sub.on_order_book_item_removed(event)
             elif isinstance(event, TradeEvent):
                 func = sub.on_trade(event)
             elif isinstance(event, MarketStatusEvent):
@@ -175,11 +178,81 @@ class MarketFeed(abc.ABC):
                 asyncio.create_task(func)
 
 
+class OrderBookEntry:
+    price: Amount
+    volume: Amount
+    orders: dict[str, LimitOrder]
+
+
 class Market:
+
     def __init__(self, name: str, symbol: str, client: MarketClient, feed: MarketFeed):
-        self.name = name
-        self.symbol = symbol
+        self._name = name
+        self._symbol = symbol
         self._client = client
         self._feed = feed
+        self._bids = sortedcontainers.SortedSet[OrderBookEntry]()
+        self._asks = sortedcontainers.SortedSet[OrderBookEntry]()
+        self._status = MarketStatus.ACTIVE
+        self.subscribe_to_feed(MarketManager(self))
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def symbol(self) -> str:
+        return self._symbol
+
+    @property
+    def status(self) -> MarketStatus:
+        return self._status
+
+    async def get_tickers(self) -> list[Ticker]:
+        if self._status == MarketStatus.DISABLED:
+            raise MarketException(f"{self._name} market closed")
+        return await self._client.get_tickers()
+
+    async def get_ticker(self, symbol: str) -> Ticker:
+        if self._status == MarketStatus.DISABLED:
+            raise MarketException(f"{self._name} market closed")
+        return await self._client.get_ticker(symbol)
+
+    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+        if self._status == MarketStatus.DISABLED:
+            raise MarketException(f"{self._name} market closed")
+        return await self._client.place_order(order)
+
+    async def get_order(self, order_id: str) -> FullOrderDetails:
+        if self._status == MarketStatus.DISABLED:
+            raise MarketException(f"{self._name} market closed")
+        return await self._client.get_order(order_id)
+
+    async def cancel_order(self, order_id: str) -> bool:
+        if self._status == MarketStatus.DISABLED:
+            raise MarketException(f"{self._name} market closed")
+        return await self._client.cancel_order(order_id)
+
+    def subscribe_to_feed(self, subscriber) -> None:
+        self._feed.subscribe(subscriber)
+
+    def unsubscribe_from_feed(self, subscriber) -> None:
+        self._feed.unsubscribe(subscriber)
 
 
+class MarketManager(MarketFeedSubscriber):
+
+    def __init__(self, market: Market) -> None:
+        self.market = market
+
+    async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
+        pass
+
+    async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
+        pass
+
+    async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
+        pass
+
+    async def on_market_status_update(self, event: MarketStatusEvent) -> None:
+        self.market._status = event.status
