@@ -27,4 +27,7 @@ class StartUpException(Exception):
 
 
 class MarketException(Exception):
-    pass
+
+    def __init__(self, message: str, market_name: str):
+        super().__init__(f"{market_name}: {message}")
+        self.market_name = market_name

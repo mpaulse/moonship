@@ -68,8 +68,8 @@ def configure_logging(app_config: Config) -> None:
         logging_config |= config
     handlers = logging_config.get("handlers")
     if isinstance(handlers, Config):
-        for handler_name in handlers.children_keys:
-            log_file_path = handlers.get(f"{handler_name}.filename")
+        for handler_name, handler_config in handlers.items():
+            log_file_path = handler_config.get("filename")
             if isinstance(log_file_path, str):
                 log_dir = os.path.dirname(log_file_path)
                 if not os.path.isdir(log_dir):
@@ -92,6 +92,7 @@ def launch():
                                              /_/      
         """)
 
+    engine = None
     event_loop = asyncio.get_event_loop()
     try:
         engine = TradeEngine(config)
@@ -103,6 +104,9 @@ def launch():
         pass
     finally:
         logger.info("Shutting down.")
+        if isinstance(engine, TradeEngine):
+            event_loop.run_until_complete(engine.stop())
+        event_loop.run_until_complete(asyncio.sleep(0.5))
         event_loop.close()
 
 

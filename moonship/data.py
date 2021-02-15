@@ -45,9 +45,9 @@ __all__ = [
 
 
 class MarketStatus(Enum):
-    DISABLED = 0
-    ACTIVE = 1
-    POST_ONLY = 2
+    CLOSED = 0
+    OPEN = 1
+    OPEN_POST_ONLY = 2
 
 
 @dataclass()
@@ -78,7 +78,6 @@ class OrderStatus(Enum):
 @dataclass()
 class AbstractOrder(abc.ABC):
     id: str
-    symbol: str
     action: OrderAction
 
 

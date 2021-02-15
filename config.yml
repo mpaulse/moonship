@@ -12,9 +12,9 @@ moonship:
         - other
 
   markets:
-    client: moonship.mymarket.MyDefaultMarketClient
     bitcoin:
       symbol: BTCUSD
+      client: moonship.mymarket.MyMarketClient
       feed: moonship.mymarket.MyMarketDataFeed
     other:
       symbol: OTHER
@@ -28,9 +28,7 @@ moonship:
         - file
     loggers:
       moonship:
-        level: DEBUG
-      asyncio:
-        level: CRITICAL
+        level: INFO
     handlers:
       stdout:
         class: logging.StreamHandler

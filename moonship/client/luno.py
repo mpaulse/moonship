@@ -40,12 +40,9 @@ logger = logging.getLogger(__name__)
 
 
 def to_market_status(s: str) -> MarketStatus:
-    try:
-        return MarketStatus[s]
-    except KeyError:
-        if s == "POSTONLY":
-            return MarketStatus.POST_ONLY
-        return MarketStatus.ACTIVE
+    return MarketStatus.OPEN if s == "ACTIVE" \
+        else MarketStatus.OPEN_POST_ONLY if s == "POSTONLY" \
+        else MarketStatus.CLOSED
 
 
 def to_order_action(s: str) -> OrderAction:
@@ -59,7 +56,9 @@ def to_amount_str(a: Amount) -> str:
 class AbstractLunoClient(abc.ABC):
     http_session: Optional[aiohttp.ClientSession]
 
-    def __init__(self, market_name: str, app_config: Config):
+    def __init__(self, market_name: str, symbol: str, app_config: Config):
+        self.market_name = market_name
+        self.symbol = symbol
         self.key_id = app_config.get("moonship.luno.key_id")
         if not isinstance(self.key_id, str):
             raise StartUpException("Luno API key ID not configured")
@@ -85,27 +84,9 @@ class LunoClient(AbstractLunoClient, MarketClient):
             raise_for_status=True,
             timeout=aiohttp.ClientTimeout(total=15))
 
-    async def get_tickers(self) -> list[Ticker]:
+    async def get_ticker(self) -> Ticker:
         try:
-            async with self.http_session.get(f"${API_BASE_URL}/tickers") as rsp:
-                ticker_data = (await rsp.json()).get("tickers")
-                tickers: list[Ticker] = []
-                for ticker in ticker_data:
-                    tickers.append(
-                        Ticker(
-                            timestamp=to_utc_timestamp(ticker.get("timestamp")),
-                            symbol=ticker.get("pair"),
-                            ask_price=to_amount(ticker.get("bid")),
-                            bid_price=to_amount(ticker.get("ask")),
-                            current_price=to_amount(ticker.get("last_trade")),
-                            status=to_market_status(ticker.get("status"))))
-                return tickers
-        except Exception as e:
-            raise MarketException("Could not retrieve tickers") from e
-
-    async def get_ticker(self, symbol: str) -> Ticker:
-        try:
-            async with self.http_session.get(f"${API_BASE_URL}/ticker", params={"pair": symbol}) as rsp:
+            async with self.http_session.get(f"${API_BASE_URL}/ticker", params={"pair": self.symbol}) as rsp:
                 ticker = await rsp.json()
                 return Ticker(
                     timestamp=to_utc_timestamp(ticker.get("timestamp")),
@@ -115,11 +96,11 @@ class LunoClient(AbstractLunoClient, MarketClient):
                     current_price=to_amount(ticker.get("last_trade")),
                     status=to_market_status(ticker.get("status")))
         except Exception as e:
-            raise MarketException(f"Could not retrieve ticker for {symbol}") from e
+            raise MarketException(f"Could not retrieve ticker for {self.symbol}", self.market_name) from e
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
-            "pair": order.symbol
+            "pair": self.symbol
         }
         if isinstance(order, LimitOrder):
             order_type = "postorder"
@@ -139,7 +120,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
                 order.id = (await rsp.json()).get("order_id")
                 return order.id
         except Exception as e:
-            raise MarketException("Failed to place order") from e
+            raise MarketException("Failed to place order", self.market_name) from e
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
@@ -148,7 +129,6 @@ class LunoClient(AbstractLunoClient, MarketClient):
                 state = order_data.get("state")
                 return FullOrderDetails(
                     id=order_id,
-                    symbol=order_data.get("pair"),
                     action=to_order_action(order_data.get("type")),
                     base_amount_filled=to_amount(order_data("base")),
                     counter_amount_filled=to_amount(order_data("counter")),
@@ -160,7 +140,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
                     else OrderStatus.PENDING,
                     created_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
         except Exception as e:
-            raise MarketException(f"Could not retrieve details of order {order_id}") from e
+            raise MarketException(f"Could not retrieve details of order {order_id}", self.market_name) from e
 
     async def cancel_order(self, order_id: str) -> bool:
         request = {
@@ -170,14 +150,13 @@ class LunoClient(AbstractLunoClient, MarketClient):
             async with self.http_session.post(f"${API_BASE_URL}/stoporder", data=request) as rsp:
                 return bool((await rsp.json()).get("success"))
         except Exception as e:
-            raise MarketException("Failed to cancel order") from e
+            raise MarketException("Failed to cancel order", self.market_name) from e
 
 
-class LunoMarketFeed(AbstractLunoClient, MarketFeed):
+class LunoFeed(AbstractLunoClient, MarketFeed):
 
-    def __init__(self, symbol: str, market_name: str, app_config: Config):
-        super().__init__(market_name, app_config)
-        self.symbol = symbol
+    def __init__(self, market_name: str, symbol: str, app_config: Config):
+        super().__init__(market_name, symbol, app_config)
 
     async def connect(self):
         self.http_session = aiohttp.ClientSession()
@@ -208,7 +187,7 @@ class LunoMarketFeed(AbstractLunoClient, MarketFeed):
                         elif isinstance(msg, dict):
                             seq_no += 1
                             if seq_no != int(msg.get("sequence")):
-                                raise MarketException("Feed out of sequence")
+                                raise MarketException("Feed out of sequence", self.market_name)
                             timestamp = to_utc_timestamp(msg.get("timestamp"))
                             updates = msg.get("trade_updates")
                             if updates is not None:
@@ -247,7 +226,6 @@ class LunoMarketFeed(AbstractLunoClient, MarketFeed):
     def get_order(self, action: OrderAction, order_data) -> LimitOrder:
         return LimitOrder(
             id=order_data.get("id") if "id" in order_data else order_data.get("order_id"),
-            symbol=self.symbol,
             action=action,
             price=to_amount(order_data.get("price")),
             volume=to_amount(order_data.get("volume")))

@@ -25,8 +25,8 @@
 import os
 import yaml
 
-from collections import KeysView
-from typing import Union
+from collections import ItemsView
+from typing import Iterator, Union
 
 __all__ = [
     "Config"
@@ -42,6 +42,12 @@ class Config:
         self.dict |= other.dict
         return self
 
+    def __iter__(self) -> Iterator[any]:
+        return iter(self.dict)
+
+    def items(self) -> ItemsView[str, Union["Config", any]]:
+        return self.dict.items()
+
     def get(self, key: str) -> Union["Config", any]:
         keys = key.split(".")
         value = self.dict
@@ -52,10 +58,6 @@ class Config:
         if isinstance(value, dict):
             value = Config(value)
         return value
-
-    @property
-    def children_keys(self) -> KeysView[str]:
-        return self.dict.keys()
 
     @staticmethod
     def load_from_file(config_filename: str) -> "Config":
