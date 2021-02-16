@@ -52,7 +52,7 @@ class MarketManager(MarketFeedSubscriber):
         await self.market._feed.connect()
         await self.market._client.connect()
         ticker = await self.market._client.get_ticker()
-        self.set_current_price(ticker.current_price)
+        self.market._current_price = ticker.current_price
         self.market._feed.raise_event(
             TickerEvent(
                 timestamp=Timestamp.now(tz=timezone.utc),
@@ -83,7 +83,7 @@ class MarketManager(MarketFeedSubscriber):
         self.market._status = event.status
 
     async def on_trade(self, event: TradeEvent) -> None:
-        self.set_current_price(event.counter_amount / event.base_amount)
+        self.market._current_price = event.counter_amount / event.base_amount
         self.market._order_book.remove_order(event.maker_order_id)
         self.market._feed.raise_event(
             TickerEvent(
@@ -97,9 +97,6 @@ class MarketManager(MarketFeedSubscriber):
                     bid_price=self.market.bid_price,
                     ask_price=self.market.ask_price,
                     status=self.market.status)))
-
-    def set_current_price(self, price: Amount) -> None:
-        self.market._current_price = price.quantize(Amount("0.00"))
 
 
 class TradeEngine:
