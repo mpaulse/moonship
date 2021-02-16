@@ -25,20 +25,20 @@
 import importlib
 import logging
 
-from .algo import *
-from .config import *
-from .data import *
-from .error import *
-from .market import *
+from datetime import timezone
+from moonship import *
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class Strategy:
-    def __init__(self, name: str, algo: TradingAlgo):
+
+    def __init__(self, name: str, algo: TradingAlgo, market_names: list[str], auto_start=True) -> None:
         self.name = name
         self.algo = algo
+        self.market_names = market_names
+        self.auto_start = auto_start
 
 
 class MarketManager(MarketFeedSubscriber):
@@ -51,6 +51,14 @@ class MarketManager(MarketFeedSubscriber):
         self.market._status = MarketStatus.OPEN
         await self.market._feed.connect()
         await self.market._client.connect()
+        ticker = await self.market._client.get_ticker()
+        self.set_current_price(ticker.current_price)
+        self.market._feed.raise_event(
+            TickerEvent(
+                timestamp=Timestamp.now(tz=timezone.utc),
+                market_name=self.market.name,
+                symbol=self.market.symbol,
+                ticker=ticker))
 
     async def close(self) -> None:
         await self.market._client.close()
@@ -64,25 +72,23 @@ class MarketManager(MarketFeedSubscriber):
         self.market._order_book.clear()
         for order in event.orders:
             self.market._order_book.add_order(order)
-        self.log_market_info()
 
     async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
         self.market._order_book.add_order(event.order)
-        self.log_market_info()
 
     async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
         self.market._order_book.remove_order(event.order_id)
-        self.log_market_info()
 
     async def on_market_status_update(self, event: MarketStatusEvent) -> None:
         self.market._status = event.status
 
     async def on_trade(self, event: TradeEvent) -> None:
-        self.market._current_price = Amount(event.counter_amount / event.base_amount)
+        self.set_current_price(event.counter_amount / event.base_amount)
         self.market._order_book.remove_order(event.maker_order_id)
         self.market._feed.raise_event(
             TickerEvent(
                 timestamp=event.timestamp,
+                market_name=event.market_name,
                 symbol=event.symbol,
                 ticker=Ticker(
                     timestamp=event.timestamp,
@@ -92,23 +98,8 @@ class MarketManager(MarketFeedSubscriber):
                     ask_price=self.market.ask_price,
                     status=self.market.status)))
 
-    def log_market_info(self):
-        if logger.isEnabledFor(logging.DEBUG):
-            bids = self.market.bids.values()
-            asks = self.market.asks.values()
-            n = min(min(len(bids), len(asks)), 10)
-            s = f"\n========== Market info: {self.market.name} =========\n"
-            s += f"{'Bids':18} | {'Asks':18}\n"
-            for i in range(0, n):
-                b = bids[len(bids)-1-i]
-                a = asks[i]
-                s += f"{b.volume:8} {b.price:8} | {a.price:8} {a.volume:8}\n"
-            s += "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n"
-            s += f"Price: {self.market.current_price}\n"
-            s += f"Bid: {self.market.bid_price}\n"
-            s += f"Ask: {self.market.ask_price}\n"
-            s += f"Spread: {self.market.spread}\n"
-            logger.debug(s)
+    def set_current_price(self, price: Amount) -> None:
+        self.market._current_price = price.quantize(Amount("0.00"))
 
 
 class TradeEngine:
@@ -126,35 +117,79 @@ class TradeEngine:
         for market_name, market_config in markets_config.items():
             symbol = market_config.get("symbol")
             if not isinstance(symbol, str):
-                raise StartUpException(f"No symbol configured for market: {market_name}")
+                raise StartUpException(f"No symbol configured for {market_name} market")
             client_class_name = market_config.get("client")
             if not isinstance(client_class_name, str):
-                raise StartUpException(f"No client configured for market: {market_name}")
+                raise StartUpException(f"No client configured for {market_name} market")
             client_class = self._get_class(client_class_name)
             if client_class is None or not issubclass(client_class, MarketClient):
-                raise StartUpException(f"Invalid client specified for market: {market_name}")
+                raise StartUpException(f"Invalid client specified for {market_name} market: {client_class_name}")
             client = client_class(market_name, symbol, config)
             feed_class_name = market_config.get("feed")
             if not isinstance(feed_class_name, str):
-                raise StartUpException(f"No feed configured for market: {market_name}")
+                raise StartUpException(f"No feed configured for {market_name} market")
             feed_class = self._get_class(feed_class_name)
             if feed_class is None or not issubclass(feed_class, MarketFeed):
-                raise StartUpException(f"Invalid feed specified for market: {market_name}")
+                raise StartUpException(f"Invalid feed specified for {market_name} market: {feed_class_name}")
             feed = feed_class(market_name, symbol, config)
             self.markets[market_name] = MarketManager(Market(market_name, symbol, client, feed))
 
     def _init_strategies(self, config: Config) -> None:
-        pass
+        strategies_config = config.get("moonship.strategies")
+        if not isinstance(strategies_config, Config):
+            raise StartUpException("No strategy configuration specified")
+        for strategy_name, strategy_config in strategies_config.items():
+            markets_names = strategy_config.get("markets")
+            if not isinstance(markets_names, list):
+                logger.warning(f"No markets configured for {strategy_name} strategy. Ignoring.")
+                continue
+            markets: [str, Market] = {}
+            for market_name in markets_names:
+                market = self.markets[market_name]
+                if market is None:
+                    raise StartUpException(f"Invalid market specified for {strategy_name} strategy: {market_name}")
+                markets[market_name] = market.market
+            algo_class_name = strategy_config.get("algo")
+            if not isinstance(algo_class_name, str):
+                raise StartUpException(f"No algo configured for {strategy_name} strategy")
+            algo_class = self._get_class(algo_class_name)
+            if algo_class is None or not issubclass(algo_class, TradingAlgo):
+                raise StartUpException(f"Invalid algo specified for {strategy_name} strategy: {algo_class_name}")
+            algo = algo_class(strategy_name, markets, config)
+            auto_start = strategy_config.get("auto_start")
+            if not isinstance(auto_start, bool):
+                auto_start = True
+            self.strategies[strategy_name] = Strategy(strategy_name, algo, markets_names, auto_start)
 
-    async def start(self):
-        for market_name, market in self.markets.items():
-            logger.info(f"Opening market: {market_name}")
-            await market.open()
+    async def start(self) -> None:
+        for strategy in self.strategies.values():
+            if strategy.auto_start:
+                await self.start_strategy(strategy.name)
 
-    async def stop(self):
-        for market_name, market in self.markets.items():
-            logger.info(f"Closing market: {market_name}")
-            await market.close()
+    async def start_strategy(self, name: str) -> None:
+        strategy = self.strategies.get(name)
+        if strategy is not None:
+            for market_name in strategy.market_names:
+                market = self.markets[market_name]
+                if market.market.status == MarketStatus.CLOSED:
+                    logger.info(f"Opening {market_name} market...")
+                    await market.open()
+            logger.info(f"Starting {strategy.name} strategy...")
+            await strategy.algo.start()
+
+    async def stop(self) -> None:
+        for strategy_name in self.strategies.keys():
+            await self.stop_strategy(strategy_name)
+        for market in self.markets.values():
+            if market.market.status != MarketStatus.CLOSED:
+                logger.info(f"Stopping {market.market.name} market...")
+                await market.close()
+
+    async def stop_strategy(self, name: str) -> None:
+        strategy = self.strategies.get(name)
+        if strategy is not None:
+            logger.info(f"Stopping {strategy.name} strategy...")
+            await strategy.algo.stop()
 
     def _get_class(self, class_name: str) -> Optional[type]:
         try:

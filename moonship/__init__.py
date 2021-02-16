@@ -22,9 +22,10 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from .algo import *
-from .config import *
-from .data import *
-from .error import *
-from .launcher import launch
-from .market import *
+from moonship.config import *
+from moonship.data import *
+from moonship.error import *
+from moonship.market.market import *
+from moonship.strategy.strategy import *
+from moonship.launcher import launch
+

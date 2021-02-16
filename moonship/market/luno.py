@@ -27,10 +27,7 @@ import aiohttp
 import asyncio
 import logging
 
-from ..config import *
-from ..data import *
-from ..error import *
-from ..market import *
+from moonship import *
 from typing import Optional, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
@@ -53,7 +50,7 @@ def to_amount_str(a: Amount) -> str:
     return str(round(a, 6))  # Get an API error if there are too many decimal places
 
 
-class AbstractLunoClient(abc.ABC):
+class AbstractClient(abc.ABC):
     http_session: Optional[aiohttp.ClientSession]
 
     def __init__(self, market_name: str, symbol: str, app_config: Config):
@@ -72,11 +69,15 @@ class AbstractLunoClient(abc.ABC):
 
     async def close(self):
         if self.http_session is not None:
-            await self.http_session.close()
+            s = self.http_session
             self.http_session = None
+            await s.close()
+
+    def is_closed(self):
+        return self.http_session is None or self.http_session.closed
 
 
-class LunoClient(AbstractLunoClient, MarketClient):
+class Client(AbstractClient, MarketClient):
 
     async def connect(self):
         self.http_session = aiohttp.ClientSession(
@@ -86,7 +87,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
 
     async def get_ticker(self) -> Ticker:
         try:
-            async with self.http_session.get(f"${API_BASE_URL}/ticker", params={"pair": self.symbol}) as rsp:
+            async with self.http_session.get(f"{API_BASE_URL}/ticker", params={"pair": self.symbol}) as rsp:
                 ticker = await rsp.json()
                 return Ticker(
                     timestamp=to_utc_timestamp(ticker.get("timestamp")),
@@ -116,7 +117,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
             else:
                 request["base_volume"] = order.amount
         try:
-            async with self.http_session.post(f"${API_BASE_URL}/{order_type}", data=request) as rsp:
+            async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
                 order.id = (await rsp.json()).get("order_id")
                 return order.id
         except Exception as e:
@@ -124,7 +125,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
-            async with self.http_session.get(f"${API_BASE_URL}/orders/{order_id}") as rsp:
+            async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
                 order_data = await rsp.json()
                 state = order_data.get("state")
                 return FullOrderDetails(
@@ -147,13 +148,13 @@ class LunoClient(AbstractLunoClient, MarketClient):
             "order_id": order_id
         }
         try:
-            async with self.http_session.post(f"${API_BASE_URL}/stoporder", data=request) as rsp:
+            async with self.http_session.post(f"{API_BASE_URL}/stoporder", data=request) as rsp:
                 return bool((await rsp.json()).get("success"))
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market_name) from e
 
 
-class LunoFeed(AbstractLunoClient, MarketFeed):
+class Feed(AbstractClient, MarketFeed):
 
     def __init__(self, market_name: str, symbol: str, app_config: Config):
         super().__init__(market_name, symbol, app_config)
@@ -163,7 +164,7 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
         asyncio.create_task(self.process_feed())
 
     async def process_feed(self):
-        while not self.http_session.closed:
+        while not self.is_closed():
             try:
                 seq_no = -1
                 async with self.http_session.ws_connect(f"{FEED_BASE_URL}/{self.symbol}") as websocket:
@@ -171,7 +172,7 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                         "api_key_id": self.key_id,
                         "api_key_secret": self.key_secret
                     })
-                    while not websocket.closed:
+                    while not self.is_closed() and not websocket.closed:
                         msg = await websocket.receive_json()
                         if seq_no < 0:
                             seq_no = int(msg.get("sequence"))
@@ -181,6 +182,7 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                             self.raise_event(
                                 OrderBookInitEvent(
                                     timestamp=to_utc_timestamp(msg.get("timestamp")),
+                                    market_name=self.market_name,
                                     symbol=self.symbol,
                                     status=to_market_status(msg.get("status")),
                                     orders=orders))
@@ -199,6 +201,7 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                                 self.raise_event(
                                     OrderBookItemAddedEvent(
                                         timestamp=timestamp,
+                                        market_name=self.market_name,
                                         symbol=self.symbol,
                                         order=self.get_order(to_order_action(updates.get("type")), updates)))
                             updates = msg.get("delete_update")
@@ -206,6 +209,7 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                                 self.raise_event(
                                     OrderBookItemRemovedEvent(
                                         timestamp=timestamp,
+                                        market_name=self.market_name,
                                         symbol=self.symbol,
                                         order_id=updates.get("order_id")))
                             updates = msg.get("status_update")
@@ -213,11 +217,13 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                                 self.raise_event(
                                     MarketStatusEvent(
                                         timestamp=timestamp,
+                                        market_name=self.market_name,
                                         symbol=self.symbol,
                                         status=to_market_status(updates.get("status"))))
             except Exception as e:
-                logger.exception("Feed error", e)
-                await asyncio.sleep(1)
+                if not self.is_closed():
+                    logger.exception("Feed error", e)
+                    await asyncio.sleep(1)
 
     def get_orders(self, action: OrderAction, order_data: list[dict], orders: list[LimitOrder]):
         for data in order_data:
@@ -235,11 +241,11 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
         for data in trade_data:
             trades.append(
                 TradeEvent(
-                    symbol=self.symbol,
                     timestamp=timestamp,
+                    market_name=self.market_name,
+                    symbol=self.symbol,
                     base_amount=to_amount(data.get("base")),
                     counter_amount=to_amount(data.get("counter")),
                     maker_order_id=data.get("maker_order_id"),
                     taker_order_id=data.get("taker_order_id")))
         return trades
-

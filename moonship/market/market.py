@@ -28,10 +28,8 @@ import collections
 import logging
 import sortedcontainers
 
-from .config import *
-from .data import *
-from .error import *
 from dataclasses import dataclass, field
+from moonship import *
 from typing import Iterator, Union
 
 __all__ = [
@@ -87,6 +85,7 @@ class MarketClient(abc.ABC):
 @dataclass()
 class MarketEvent:
     timestamp: Timestamp
+    market_name: str
     symbol: str
 
 
@@ -168,7 +167,6 @@ class MarketFeed(abc.ABC):
         self.subscribers.remove(subscriber)
 
     def raise_event(self, event: MarketEvent) -> None:
-        logger.debug(event)
         for sub in self.subscribers:
             func = None
             if isinstance(event, OrderBookItemAddedEvent):
@@ -290,8 +288,7 @@ class Market:
 
     @property
     def bid_price(self) -> Amount:
-        n = len(self._order_book.bids)
-        return self._order_book.bids.peekitem(n-1)[0] if n > 0 else Amount(0)
+        return self._order_book.bids.peekitem(-1)[0] if len(self._order_book.bids) > 0 else Amount(0)
 
     @property
     def ask_price(self) -> Amount:

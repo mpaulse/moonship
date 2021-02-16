@@ -28,9 +28,8 @@ import logging.config
 import os
 import sys
 
-from .config import *
-from .engine import TradeEngine
-from .error import *
+from moonship import *
+from moonship.engine import TradeEngine
 
 logger = logging.getLogger(__package__)
 
@@ -44,9 +43,6 @@ def configure_logging(app_config: Config) -> None:
         "loggers": {
             "moonship": {
                 "level": "INFO"
-            },
-            "asyncio": {
-                "level": "CRITICAL"
             }
         },
         "handlers": {
@@ -103,11 +99,12 @@ def launch():
     except KeyboardInterrupt:
         pass
     finally:
-        logger.info("Shutting down.")
+        logger.info("Shutting down...")
         if isinstance(engine, TradeEngine):
             event_loop.run_until_complete(engine.stop())
         event_loop.run_until_complete(asyncio.sleep(0.5))
         event_loop.close()
+        logger.info("Thank you for flying!")
 
 
 if __name__ == "__main__":

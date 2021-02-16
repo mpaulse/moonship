@@ -22,12 +22,25 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from .market import *
+import abc
+
+from moonship import *
 
 __all__ = [
     "TradingAlgo"
 ]
 
 
-class TradingAlgo:
-    pass
+class TradingAlgo(abc.ABC):
+
+    def __init__(self, strategy_name: str, markets: dict[str, Market], app_config: Config):
+        self.strategy_name = strategy_name
+        self.markets = markets
+
+    @abc.abstractmethod
+    async def start(self):
+        pass
+
+    @abc.abstractmethod
+    async def stop(self):
+        pass
