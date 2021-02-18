@@ -22,25 +22,51 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import abc
+import os
+import yaml
 
-from moonship import *
+from collections import ItemsView
+from typing import Iterator, Union
 
 __all__ = [
-    "TradingAlgo"
+    "Config"
 ]
 
 
-class TradingAlgo(abc.ABC):
+class Config:
 
-    def __init__(self, strategy_name: str, markets: dict[str, Market], app_config: Config):
-        self.strategy_name = strategy_name
-        self.markets = markets
+    def __init__(self, config_dict: dict, key: str = None) -> None:
+        self.dict = config_dict
+        self.key = key
 
-    @abc.abstractmethod
-    async def start(self):
-        pass
+    def __ior__(self, other: "Config") -> "Config":
+        self.dict |= other.dict
+        return self
 
-    @abc.abstractmethod
-    async def stop(self):
-        pass
+    def __iter__(self) -> Iterator[any]:
+        return iter(self.dict)
+
+    def items(self) -> ItemsView[str, Union["Config", any]]:
+        return self.dict.items()
+
+    def get(self, key: str) -> Union["Config", any]:
+        keys = key.split(".")
+        value = self.dict
+        for i in range(0, len(keys)):
+            value = value.get(keys[i])
+            if value is None or (not isinstance(value, dict) and i < len(keys) - 1):
+                return None
+        if isinstance(value, dict):
+            value = Config(value, key)
+        return value
+
+    @staticmethod
+    def load_from_file(config_filename: str) -> "Config":
+        config = {
+            "moonship": {
+            }
+        }
+        if os.path.isfile(config_filename):
+            with open(config_filename, "r") as config_file:
+                config = yaml.safe_load(config_file)
+        return Config(config)

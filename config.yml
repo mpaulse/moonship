@@ -2,11 +2,11 @@ moonship:
 
   strategies:
     test:
-      algo: moonship.strategy.test.LogMarketInfo
+      algo: moonship.algo.test.LogMarketInfo
       markets:
         - bitcoin
     other:
-      algo: moonship.strategy.other.OtherAlgo
+      algo: moonship.algo.other.OtherAlgo
       markets:
         - bitcoin
         - other
@@ -14,12 +14,12 @@ moonship:
   markets:
     bitcoin:
       symbol: BTCUSD
-      client: moonship.market.test.Client
-      feed: moonship.market.test.DataFeed
+      client: moonship.client.test.TestClient
+      feed: moonship.client.test.TestDataFeed
     other:
       symbol: OTHER
-      client: moonship.market.other.Client
-      feed: moonship.market.other.DataFeed
+      client: moonship.client.other.OtherClient
+      feed: moonship.client.other.OtherDataFeed
 
   logging:
     root:

@@ -24,7 +24,7 @@
 
 import logging
 
-from moonship import *
+from moonship.core import *
 
 logger = logging.getLogger(__name__)
 

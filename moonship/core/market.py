@@ -29,7 +29,7 @@ import logging
 import sortedcontainers
 
 from dataclasses import dataclass, field
-from moonship import *
+from moonship.core import *
 from typing import Iterator, Union
 
 __all__ = [

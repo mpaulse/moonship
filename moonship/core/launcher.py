@@ -28,10 +28,14 @@ import logging.config
 import os
 import sys
 
-from moonship import *
-from moonship.engine import TradeEngine
+from moonship.core import __version__, Config, StartUpException
+from moonship.core.engine import TradeEngine
 
-logger = logging.getLogger(__package__)
+__all__ = [
+    "launch"
+]
+
+logger = logging.getLogger("moonship")
 
 
 def configure_logging(app_config: Config) -> None:
@@ -58,7 +62,7 @@ def configure_logging(app_config: Config) -> None:
             }
         },
         "disable_existing_loggers": False
-    })
+    }, "moonship.logging")
     config = app_config.get("moonship.logging")
     if isinstance(config, Config):
         logging_config |= config
@@ -87,7 +91,7 @@ def launch():
         /_/  /_/\____/\____/_/ /_/____/_/ /_/_/ .___/ 
                                              /_/      
         """)
-
+    logger.info(f"Version {__version__}")
     engine = None
     event_loop = asyncio.get_event_loop()
     try:

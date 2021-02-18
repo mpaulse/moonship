@@ -26,19 +26,11 @@ import importlib
 import logging
 
 from datetime import timezone
-from moonship import *
+from moonship.core import *
+from moonship.core.strategy import Strategy
 from typing import Optional
 
 logger = logging.getLogger(__name__)
-
-
-class Strategy:
-
-    def __init__(self, name: str, algo: TradingAlgo, market_names: list[str], auto_start=True) -> None:
-        self.name = name
-        self.algo = algo
-        self.market_names = market_names
-        self.auto_start = auto_start
 
 
 class MarketManager(MarketFeedSubscriber):
@@ -115,20 +107,10 @@ class TradeEngine:
             symbol = market_config.get("symbol")
             if not isinstance(symbol, str):
                 raise StartUpException(f"No symbol configured for {market_name} market")
-            client_class_name = market_config.get("client")
-            if not isinstance(client_class_name, str):
-                raise StartUpException(f"No client configured for {market_name} market")
-            client_class = self._get_class(client_class_name)
-            if client_class is None or not issubclass(client_class, MarketClient):
-                raise StartUpException(f"Invalid client specified for {market_name} market: {client_class_name}")
-            client = client_class(market_name, symbol, config)
-            feed_class_name = market_config.get("feed")
-            if not isinstance(feed_class_name, str):
-                raise StartUpException(f"No feed configured for {market_name} market")
-            feed_class = self._get_class(feed_class_name)
-            if feed_class is None or not issubclass(feed_class, MarketFeed):
-                raise StartUpException(f"Invalid feed specified for {market_name} market: {feed_class_name}")
-            feed = feed_class(market_name, symbol, config)
+            cls = self._load_class("client", market_config, MarketClient)
+            client = cls(market_name, symbol, config)
+            cls = self._load_class("feed", market_config, MarketFeed)
+            feed = cls(market_name, symbol, config)
             self.markets[market_name] = MarketManager(Market(market_name, symbol, client, feed))
 
     def _init_strategies(self, config: Config) -> None:
@@ -146,13 +128,8 @@ class TradeEngine:
                 if market is None:
                     raise StartUpException(f"Invalid market specified for {strategy_name} strategy: {market_name}")
                 markets[market_name] = market.market
-            algo_class_name = strategy_config.get("algo")
-            if not isinstance(algo_class_name, str):
-                raise StartUpException(f"No algo configured for {strategy_name} strategy")
-            algo_class = self._get_class(algo_class_name)
-            if algo_class is None or not issubclass(algo_class, TradingAlgo):
-                raise StartUpException(f"Invalid algo specified for {strategy_name} strategy: {algo_class_name}")
-            algo = algo_class(strategy_name, markets, config)
+            cls = self._load_class("algo", strategy_config, TradingAlgo)
+            algo = cls(strategy_name, markets, config)
             auto_start = strategy_config.get("auto_start")
             if not isinstance(auto_start, bool):
                 auto_start = True
@@ -188,10 +165,20 @@ class TradeEngine:
             logger.info(f"Stopping {strategy.name} strategy...")
             await strategy.algo.stop()
 
-    def _get_class(self, class_name: str) -> Optional[type]:
+    def _load_class(self, key: str, config: Config, expected_type: type) -> type:
+        class_name = config.get(key)
+        if not isinstance(class_name, str):
+            raise StartUpException(f"Missing configuration: {config.key}.{key}")
+        cls, version = self._get_class_and_version(class_name)
+        if cls is None or not issubclass(cls, expected_type):
+            raise StartUpException(f"Invalid configuration: {config.key}.{key}")
+        logger.info(f"Loaded {key} {class_name if version is None else f'{class_name} (version {version})'}")
+        return cls
+
+    def _get_class_and_version(self, class_name: str) -> (Optional[type], Optional[str]):
         try:
             module_name, class_name = class_name.rsplit(".", 1)
             module = importlib.import_module(module_name)
-            return getattr(module, class_name)
+            return getattr(module, class_name), getattr(module, "__version__", None)
         except:
-            return None
+            return None, None

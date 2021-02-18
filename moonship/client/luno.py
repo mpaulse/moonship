@@ -27,7 +27,7 @@ import aiohttp
 import asyncio
 import logging
 
-from moonship import *
+from moonship.core import *
 from typing import Optional, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
@@ -50,7 +50,7 @@ def to_amount_str(a: Amount) -> str:
     return str(round(a, 6))  # Get an API error if there are too many decimal places
 
 
-class AbstractClient(abc.ABC):
+class AbstractLunoClient(abc.ABC):
     http_session: Optional[aiohttp.ClientSession]
 
     def __init__(self, market_name: str, symbol: str, app_config: Config):
@@ -77,7 +77,7 @@ class AbstractClient(abc.ABC):
         return self.http_session is None or self.http_session.closed
 
 
-class Client(AbstractClient, MarketClient):
+class LunoClient(AbstractLunoClient, MarketClient):
 
     async def connect(self):
         self.http_session = aiohttp.ClientSession(
@@ -154,7 +154,7 @@ class Client(AbstractClient, MarketClient):
             raise MarketException("Failed to cancel order", self.market_name) from e
 
 
-class Feed(AbstractClient, MarketFeed):
+class LunoFeed(AbstractLunoClient, MarketFeed):
 
     def __init__(self, market_name: str, symbol: str, app_config: Config):
         super().__init__(market_name, symbol, app_config)

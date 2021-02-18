@@ -22,11 +22,34 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from moonship.config import *
-from moonship.data import *
-from moonship.error import *
-from moonship.market.market import *
-from moonship.strategy.strategy import *
-from moonship.launcher import launch
+import abc
 
-__version__ = "0.1.dev0"
+from moonship.core import *
+
+__all__ = [
+    "TradingAlgo"
+]
+
+
+class TradingAlgo(abc.ABC):
+
+    def __init__(self, strategy_name: str, markets: dict[str, Market], app_config: Config):
+        self.strategy_name = strategy_name
+        self.markets = markets
+
+    @abc.abstractmethod
+    async def start(self):
+        pass
+
+    @abc.abstractmethod
+    async def stop(self):
+        pass
+
+
+class Strategy:
+
+    def __init__(self, name: str, algo: TradingAlgo, market_names: list[str], auto_start=True) -> None:
+        self.name = name
+        self.algo = algo
+        self.market_names = market_names
+        self.auto_start = auto_start

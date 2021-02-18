@@ -22,50 +22,11 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import yaml
+__version__ = "0.1.dev0"
 
-from collections import ItemsView
-from typing import Iterator, Union
-
-__all__ = [
-    "Config"
-]
-
-
-class Config:
-
-    def __init__(self, config_dict: dict) -> None:
-        self.dict = config_dict
-
-    def __ior__(self, other: "Config") -> "Config":
-        self.dict |= other.dict
-        return self
-
-    def __iter__(self) -> Iterator[any]:
-        return iter(self.dict)
-
-    def items(self) -> ItemsView[str, Union["Config", any]]:
-        return self.dict.items()
-
-    def get(self, key: str) -> Union["Config", any]:
-        keys = key.split(".")
-        value = self.dict
-        for i in range(0, len(keys)):
-            value = value.get(keys[i])
-            if value is None or (not isinstance(value, dict) and i < len(keys) - 1):
-                return None
-        if isinstance(value, dict):
-            value = Config(value)
-        return value
-
-    @staticmethod
-    def load_from_file(config_filename: str) -> "Config":
-        config = {
-            "moonship": {
-            }
-        }
-        if os.path.isfile(config_filename):
-            with open(config_filename, "r") as config_file:
-                config = yaml.safe_load(config_file)
-        return Config(config)
+from moonship.core.config import *
+from moonship.core.data import *
+from moonship.core.error import *
+from moonship.core.market import *
+from moonship.core.strategy import *
+from moonship.core.launcher import *
