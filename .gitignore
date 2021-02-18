@@ -2,5 +2,6 @@
 build/
 dist/
 log/
+*.egg-info/
 *.iml
 config.test.yml
