@@ -1,4 +1,4 @@
-name: Moonship Build
+name: Moonship build
 
 on:
   push:
@@ -21,6 +21,7 @@ jobs:
           pipenv install -d
       - name: Build
         run: |
+          pipenv shell
           python -m build .
       - name: Upload package
         uses: actions/upload-artifact@v2

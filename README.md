@@ -1,5 +1,7 @@
 # Moonship
 
+![Moonship build status](https://github.com/mpaulse/moonship/workflows/Moonship%20build/badge.svg)
+
 Moonship is a high-frequency forex/crypto trading application that provides the
 core application framework and market interfaces.
 
