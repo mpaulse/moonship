@@ -29,3 +29,4 @@ from moonship.market.market import *
 from moonship.strategy.strategy import *
 from moonship.launcher import launch
 
+__version__ = "0.1.dev0"
