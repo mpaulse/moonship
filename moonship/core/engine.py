@@ -156,7 +156,7 @@ class TradeEngine:
             await self.stop_strategy(strategy_name)
         for market in self.markets.values():
             if market.market.status != MarketStatus.CLOSED:
-                logger.info(f"Stopping {market.market.name} market...")
+                logger.info(f"Closing {market.market.name} market...")
                 await market.close()
 
     async def stop_strategy(self, name: str) -> None:
