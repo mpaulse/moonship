@@ -37,7 +37,7 @@ class TradingAlgo(MarketSubscriber):
     def __init__(self, strategy_name: str, markets: dict[str, Market], app_config: Config):
         self.strategy_name = strategy_name
         self.markets = markets
-        self.logger = logging.getLogger(f"{__name__}.{strategy_name}")
+        self.logger = logging.getLogger(f"moonship.{strategy_name}")
 
     async def start(self):
         for market in self.markets.values():

@@ -45,6 +45,7 @@ __all__ = [
     "OrderBookItemAddedEvent",
     "OrderBookItemRemovedEvent",
     "OrderBookInitEvent",
+    "OrderClosedEvent",
     "TickerEvent",
     "TradeEvent",
 ]

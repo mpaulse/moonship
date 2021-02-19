@@ -185,4 +185,5 @@ class TradeEngine:
             module = importlib.import_module(module_name)
             return getattr(module, class_name), getattr(module, "__version__", None)
         except:
+            logger.exception("Module load error")
             return None, None

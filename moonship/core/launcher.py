@@ -99,7 +99,7 @@ def launch():
         event_loop.create_task(engine.start())
         event_loop.run_forever()
     except StartUpException:
-        logger.exception("Critical start-up error!")
+        logger.exception("Start-up failed!")
     except KeyboardInterrupt:
         pass
     finally:

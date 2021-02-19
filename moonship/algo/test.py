@@ -26,10 +26,8 @@ import logging
 
 from moonship.core import *
 
-logger = logging.getLogger(__name__)
 
-
-class LogMarketInfo(TradingAlgo, MarketSubscriber):
+class LogMarketInfo(TradingAlgo):
 
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
         self.log_market_info(event)
@@ -44,7 +42,7 @@ class LogMarketInfo(TradingAlgo, MarketSubscriber):
         self.log_market_info(event)
 
     def log_market_info(self, event: MarketEvent):
-        if logger.isEnabledFor(logging.DEBUG):
+        if self.logger.isEnabledFor(logging.DEBUG):
             market = self.markets[event.market_name]
             bids = market.bids.values()
             asks = market.asks.values()
@@ -60,4 +58,4 @@ class LogMarketInfo(TradingAlgo, MarketSubscriber):
             s += f"Bid: {market.bid_price}\n"
             s += f"Ask: {market.ask_price}\n"
             s += f"Spread: {market.spread}\n"
-            logger.debug(s)
+            self.logger.debug(s)
