@@ -94,7 +94,7 @@ class MarketStatusEvent(MarketEvent):
 
 
 @dataclass()
-class OrderFilledEvent(MarketEvent):
+class OrderClosedEvent(MarketEvent):
     order: FullOrderDetails = None
 
 
@@ -118,7 +118,7 @@ class MarketSubscriber:
     async def on_market_status_update(self, event: MarketStatusEvent) -> None:
         pass
 
-    async def on_order_filled(self, event: OrderFilledEvent) -> None:
+    async def on_order_closed(self, event: OrderClosedEvent) -> None:
         pass
 
 
@@ -314,9 +314,16 @@ class Market:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         success = await self._client.cancel_order(order_id)
-        if success and order_id in self._pending_order_ids:
-            self._pending_order_ids.remove(order_id)
+        if success:
+            asyncio.create_task(self._check_order_closed(order_id))
         return success
+
+    async def _check_order_closed(self, order_id: str) -> None:
+        if order_id in self._pending_order_ids:
+            order_details = await self.get_order(order_id)
+            if order_details.status != OrderStatus.PENDING:
+                self._pending_order_ids.remove(order_id)
+                self.raise_event(OrderClosedEvent(order=order_details))
 
     def subscribe(self, subscriber) -> None:
         self._subscribers.append(subscriber)
@@ -341,7 +348,7 @@ class Market:
                 task = sub.on_order_book_init(event)
             elif isinstance(event, MarketStatusEvent):
                 task = sub.on_market_status_update(event)
-            elif isinstance(event, OrderFilledEvent):
-                task = sub.on_order_filled(event)
+            elif isinstance(event, OrderClosedEvent):
+                task = sub.on_order_closed(event)
             if task is not None:
                 asyncio.create_task(task)

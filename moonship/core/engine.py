@@ -88,17 +88,11 @@ class MarketManager(MarketSubscriber):
                     bid_price=self.market.bid_price,
                     ask_price=self.market.ask_price,
                     status=self.market.status)))
-
         pending_order_id = \
             event.maker_order_id if event.maker_order_id in self.market._pending_order_ids \
                 else event.taker_order_id if event.taker_order_id in self.market._pending_order_ids \
                 else None
-        if pending_order_id is not None:
-            order_details = await self.market.get_order(pending_order_id)
-            if order_details.status == OrderStatus.FILLED:
-                self.market.raise_event(OrderFilledEvent(order=order_details))
-            if order_details.status != OrderStatus.PENDING:
-                self.market._pending_order_ids.remove(pending_order_id)
+        await self.market._check_order_closed(pending_order_id)
 
 
 class TradeEngine:
