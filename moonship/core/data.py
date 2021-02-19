@@ -71,25 +71,25 @@ class OrderAction(Enum):
 
 class OrderStatus(Enum):
     PENDING = 0
-    COMPLETE = 1
+    FILLED = 1
     CANCELLED = 2
 
 
 @dataclass()
 class AbstractOrder(abc.ABC):
-    id: str
     action: OrderAction
+    id: str = None
 
 
 @dataclass()
 class MarketOrder(AbstractOrder):
-    amount: Amount
+    amount: Amount = Amount(0)
 
 
 @dataclass()
 class LimitOrder(AbstractOrder):
-    price: Amount
-    volume: Amount
+    price: Amount = Amount(0)
+    volume: Amount = Amount(0)
 
 
 @dataclass()
@@ -99,7 +99,7 @@ class FullOrderDetails(AbstractOrder):
     limit_price: Amount = Amount(0)
     limit_volume: Amount = Amount(0)
     status: OrderStatus = OrderStatus.PENDING
-    created_timestamp: Timestamp = None
+    created_timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
 
 
 def to_amount(s: str) -> Amount:

@@ -29,6 +29,7 @@ import logging
 import sortedcontainers
 
 from dataclasses import dataclass, field
+from datetime import timezone
 from moonship.core import *
 from typing import Iterator, Union
 
@@ -37,7 +38,7 @@ __all__ = [
     "MarketClient",
     "MarketFeed",
     "MarketEvent",
-    "MarketFeedSubscriber",
+    "MarketSubscriber",
     "MarketStatusEvent",
     "OrderBookEntriesView",
     "OrderBookEntry",
@@ -51,11 +52,81 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-class MarketClient(abc.ABC):
+@dataclass()
+class MarketEvent:
+    timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
+    market_name: str = None
+    symbol: str = None
 
-    def __init__(self, market_name: str, symbol: str, app_config: Config):
-        self.market_name = market_name
-        self.symbol = symbol
+
+@dataclass()
+class TickerEvent(MarketEvent):
+    ticker: Ticker = None
+
+
+@dataclass()
+class OrderBookInitEvent(MarketEvent):
+    status: MarketStatus = MarketStatus.OPEN
+    orders: list[LimitOrder] = field(default_factory=list)
+
+
+@dataclass()
+class OrderBookItemAddedEvent(MarketEvent):
+    order: LimitOrder = None
+
+
+@dataclass()
+class OrderBookItemRemovedEvent(MarketEvent):
+    order_id: str = None
+
+
+@dataclass()
+class TradeEvent(MarketEvent):
+    base_amount: Amount = Amount(0)
+    counter_amount: Amount = Amount(0)
+    maker_order_id: str = None
+    taker_order_id: str = None
+
+
+@dataclass()
+class MarketStatusEvent(MarketEvent):
+    status: MarketStatus = MarketStatus.OPEN
+
+
+@dataclass()
+class OrderFilledEvent(MarketEvent):
+    order: FullOrderDetails = None
+
+
+class MarketSubscriber:
+
+    async def on_ticker(self, event: TickerEvent) -> None:
+        pass
+
+    async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
+        pass
+
+    async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
+        pass
+
+    async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
+        pass
+
+    async def on_trade(self, event: TradeEvent) -> None:
+        pass
+
+    async def on_market_status_update(self, event: MarketStatusEvent) -> None:
+        pass
+
+    async def on_order_filled(self, event: OrderFilledEvent) -> None:
+        pass
+
+
+class MarketClient(abc.ABC):
+    market: "Market" = None
+
+    def __init__(self, market_name: str, app_config: Config):
+        pass
 
     @abc.abstractmethod
     async def connect(self):
@@ -82,74 +153,10 @@ class MarketClient(abc.ABC):
         pass
 
 
-@dataclass()
-class MarketEvent:
-    timestamp: Timestamp
-    market_name: str
-    symbol: str
-
-
-@dataclass()
-class TickerEvent(MarketEvent):
-    ticker: Ticker
-
-
-@dataclass()
-class OrderBookInitEvent(MarketEvent):
-    status: MarketStatus
-    orders: list[LimitOrder] = field(default_factory=list)
-
-
-@dataclass()
-class OrderBookItemAddedEvent(MarketEvent):
-    order: LimitOrder
-
-
-@dataclass()
-class OrderBookItemRemovedEvent(MarketEvent):
-    order_id: str
-
-
-@dataclass()
-class TradeEvent(MarketEvent):
-    base_amount: Amount
-    counter_amount: Amount
-    maker_order_id: str
-    taker_order_id: str
-
-
-@dataclass()
-class MarketStatusEvent(MarketEvent):
-    status: MarketStatus
-
-
-class MarketFeedSubscriber:
-
-    async def on_ticker(self, event: TickerEvent) -> None:
-        pass
-
-    async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
-        pass
-
-    async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
-        pass
-
-    async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
-        pass
-
-    async def on_trade(self, event: TradeEvent) -> None:
-        pass
-
-    async def on_market_status_update(self, event: MarketStatusEvent) -> None:
-        pass
-
-
 class MarketFeed(abc.ABC):
-    subscribers: list[MarketFeedSubscriber] = []
+    market: "Market" = None
 
-    def __init__(self, market_name: str, symbol: str, app_config: Config):
-        self.market_name = market_name
-        self.symbol = symbol
+    def __init__(self, market_name: str, app_config: Config):
         pass
 
     @abc.abstractmethod
@@ -159,30 +166,6 @@ class MarketFeed(abc.ABC):
     @abc.abstractmethod
     async def close(self):
         pass
-
-    def subscribe(self, subscriber) -> None:
-        self.subscribers.append(subscriber)
-
-    def unsubscribe(self, subscriber) -> None:
-        self.subscribers.remove(subscriber)
-
-    def raise_event(self, event: MarketEvent) -> None:
-        for sub in self.subscribers:
-            func = None
-            if isinstance(event, OrderBookItemAddedEvent):
-                func = sub.on_order_book_item_added(event)
-            elif isinstance(event, OrderBookItemRemovedEvent):
-                func = sub.on_order_book_item_removed(event)
-            elif isinstance(event, TradeEvent):
-                func = sub.on_trade(event)
-            elif isinstance(event, TickerEvent):
-                func = sub.on_ticker(event)
-            elif isinstance(event, OrderBookInitEvent):
-                func = sub.on_order_book_init(event)
-            elif isinstance(event, MarketStatusEvent):
-                func = sub.on_market_status_update(event)
-            if func is not None:
-                asyncio.create_task(func)
 
 
 class OrderBookEntry:
@@ -265,10 +248,14 @@ class Market:
         self._name = name
         self._symbol = symbol
         self._client = client
+        self._client.market = self
         self._feed = feed
+        self._feed.market = self
         self._current_price = Amount(0)
-        self._order_book = OrderBook()
         self._status = MarketStatus.CLOSED
+        self._order_book = OrderBook()
+        self._subscribers: list[MarketSubscriber] = []
+        self._pending_order_ids: set[str] = set()
 
     @property
     def name(self) -> str:
@@ -314,7 +301,9 @@ class Market:
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
-        return await self._client.place_order(order)
+        order_id = await self._client.place_order(order)
+        self._pending_order_ids.add(order_id)
+        return order_id
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         if self._status == MarketStatus.CLOSED:
@@ -324,10 +313,35 @@ class Market:
     async def cancel_order(self, order_id: str) -> bool:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
-        return await self._client.cancel_order(order_id)
+        success = await self._client.cancel_order(order_id)
+        if success and order_id in self._pending_order_ids:
+            self._pending_order_ids.remove(order_id)
+        return success
 
-    def subscribe_to_feed(self, subscriber) -> None:
-        self._feed.subscribe(subscriber)
+    def subscribe(self, subscriber) -> None:
+        self._subscribers.append(subscriber)
 
-    def unsubscribe_from_feed(self, subscriber) -> None:
-        self._feed.unsubscribe(subscriber)
+    def unsubscribe(self, subscriber) -> None:
+        self._subscribers.remove(subscriber)
+
+    def raise_event(self, event: MarketEvent) -> None:
+        event.market_name = self.name
+        event.symbol = self.symbol
+        for sub in self._subscribers:
+            task = None
+            if isinstance(event, OrderBookItemAddedEvent):
+                task = sub.on_order_book_item_added(event)
+            elif isinstance(event, OrderBookItemRemovedEvent):
+                task = sub.on_order_book_item_removed(event)
+            elif isinstance(event, TradeEvent):
+                task = sub.on_trade(event)
+            elif isinstance(event, TickerEvent):
+                task = sub.on_ticker(event)
+            elif isinstance(event, OrderBookInitEvent):
+                task = sub.on_order_book_init(event)
+            elif isinstance(event, MarketStatusEvent):
+                task = sub.on_market_status_update(event)
+            elif isinstance(event, OrderFilledEvent):
+                task = sub.on_order_filled(event)
+            if task is not None:
+                asyncio.create_task(task)

@@ -33,19 +33,20 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-class MarketManager(MarketFeedSubscriber):
+class MarketManager(MarketSubscriber):
 
     def __init__(self, market: Market) -> None:
         self.market = market
-        self.market.subscribe_to_feed(self)
+        self.market.subscribe(self)
 
     async def open(self) -> None:
         self.market._status = MarketStatus.OPEN
         await self.market._feed.connect()
         await self.market._client.connect()
-        ticker = await self.market._client.get_ticker()
+        # TODO: get pending orders
+        ticker = await self.market.get_ticker()
         self.market._current_price = ticker.current_price
-        self.market._feed.raise_event(
+        self.market.raise_event(
             TickerEvent(
                 timestamp=Timestamp.now(tz=timezone.utc),
                 market_name=self.market.name,
@@ -77,11 +78,9 @@ class MarketManager(MarketFeedSubscriber):
     async def on_trade(self, event: TradeEvent) -> None:
         self.market._current_price = event.counter_amount / event.base_amount
         self.market._order_book.remove_order(event.maker_order_id)
-        self.market._feed.raise_event(
+        self.market.raise_event(
             TickerEvent(
                 timestamp=event.timestamp,
-                market_name=event.market_name,
-                symbol=event.symbol,
                 ticker=Ticker(
                     timestamp=event.timestamp,
                     symbol=event.symbol,
@@ -89,6 +88,17 @@ class MarketManager(MarketFeedSubscriber):
                     bid_price=self.market.bid_price,
                     ask_price=self.market.ask_price,
                     status=self.market.status)))
+
+        pending_order_id = \
+            event.maker_order_id if event.maker_order_id in self.market._pending_order_ids \
+                else event.taker_order_id if event.taker_order_id in self.market._pending_order_ids \
+                else None
+        if pending_order_id is not None:
+            order_details = await self.market.get_order(pending_order_id)
+            if order_details.status == OrderStatus.FILLED:
+                self.market.raise_event(OrderFilledEvent(order=order_details))
+            if order_details.status != OrderStatus.PENDING:
+                self.market._pending_order_ids.remove(pending_order_id)
 
 
 class TradeEngine:
@@ -108,9 +118,9 @@ class TradeEngine:
             if not isinstance(symbol, str):
                 raise StartUpException(f"No symbol configured for {market_name} market")
             cls = self._load_class("client", market_config, MarketClient)
-            client = cls(market_name, symbol, config)
+            client = cls(market_name, config)
             cls = self._load_class("feed", market_config, MarketFeed)
-            feed = cls(market_name, symbol, config)
+            feed = cls(market_name, config)
             self.markets[market_name] = MarketManager(Market(market_name, symbol, client, feed))
 
     def _init_strategies(self, config: Config) -> None:
@@ -119,7 +129,7 @@ class TradeEngine:
             raise StartUpException("No strategy configuration specified")
         for strategy_name, strategy_config in strategies_config.items():
             markets_names = strategy_config.get("markets")
-            if not isinstance(markets_names, list):
+            if not isinstance(markets_names, list) or len(markets_names) == 0:
                 logger.warning(f"No markets configured for {strategy_name} strategy. Ignoring.")
                 continue
             markets: [str, Market] = {}

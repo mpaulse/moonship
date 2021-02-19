@@ -23,6 +23,7 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import abc
+import logging
 
 from moonship.core import *
 
@@ -31,19 +32,20 @@ __all__ = [
 ]
 
 
-class TradingAlgo(abc.ABC):
+class TradingAlgo(MarketSubscriber):
 
     def __init__(self, strategy_name: str, markets: dict[str, Market], app_config: Config):
         self.strategy_name = strategy_name
         self.markets = markets
+        self.logger = logging.getLogger(f"{__name__}.{strategy_name}")
 
-    @abc.abstractmethod
     async def start(self):
-        pass
+        for market in self.markets.values():
+            market.subscribe(self)
 
-    @abc.abstractmethod
     async def stop(self):
-        pass
+        for market in self.markets.values():
+            market.unsubscribe(self)
 
 
 class Strategy:

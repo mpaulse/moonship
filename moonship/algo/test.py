@@ -29,15 +29,7 @@ from moonship.core import *
 logger = logging.getLogger(__name__)
 
 
-class LogMarketInfo(TradingAlgo, MarketFeedSubscriber):
-
-    async def start(self):
-        for market in self.markets.values():
-            market.subscribe_to_feed(self)
-
-    async def stop(self):
-        for market in self.markets.values():
-            market.unsubscribe_from_feed(self)
+class LogMarketInfo(TradingAlgo, MarketSubscriber):
 
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
         self.log_market_info(event)
