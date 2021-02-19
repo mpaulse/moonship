@@ -33,6 +33,29 @@ __all__ = [
 ]
 
 
+class ConfigItemsView(ItemsView):
+
+    def __init__(self, config_dict: dict, key: str):
+        super().__init__(config_dict)
+        self.key = key
+
+    def __contains__(self, item) -> bool:
+        key, value = item
+        try:
+            v = self._mapping[key]
+        except KeyError:
+            return False
+        else:
+            return v is value or v == value
+
+    def __iter__(self) -> Iterator[tuple[str, Union["Config", any]]]:
+        for key in self._mapping:
+            value = self._mapping[key]
+            if isinstance(value, dict):
+                value = Config(value, f"{self.key}.{key}" if self.key is not None else key)
+            yield key, value
+
+
 class Config:
 
     def __init__(self, config_dict: dict, key: str = None) -> None:
@@ -47,7 +70,7 @@ class Config:
         return iter(self.dict)
 
     def items(self) -> ItemsView[str, Union["Config", any]]:
-        return self.dict.items()
+        return ConfigItemsView(self.dict, self.key)
 
     def get(self, key: str) -> Union["Config", any]:
         keys = key.split(".")
@@ -57,7 +80,7 @@ class Config:
             if value is None or (not isinstance(value, dict) and i < len(keys) - 1):
                 return None
         if isinstance(value, dict):
-            value = Config(value, key)
+            value = Config(value, f"{self.key}.{key}" if self.key is not None else key)
         return value
 
     @staticmethod
