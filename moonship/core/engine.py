@@ -92,7 +92,7 @@ class MarketManager(MarketSubscriber):
             event.maker_order_id if event.maker_order_id in self.market._pending_order_ids \
                 else event.taker_order_id if event.taker_order_id in self.market._pending_order_ids \
                 else None
-        await self.market._check_order_closed(pending_order_id)
+        await self.market._update_order_status(pending_order_id)
 
 
 class TradeEngine:
@@ -165,7 +165,7 @@ class TradeEngine:
 
     async def stop_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
-        if strategy is not None:
+        if strategy is not None and strategy.is_running:
             await strategy.stop()
             logger.info(f"Stopped {strategy.name} strategy")
 

@@ -45,7 +45,7 @@ __all__ = [
     "OrderBookItemAddedEvent",
     "OrderBookItemRemovedEvent",
     "OrderBookInitEvent",
-    "OrderClosedEvent",
+    "OrderStatusUpdateEvent",
     "TickerEvent",
     "TradeEvent",
 ]
@@ -93,7 +93,7 @@ class MarketStatusEvent(MarketEvent):
 
 
 @dataclass()
-class OrderClosedEvent(MarketEvent):
+class OrderStatusUpdateEvent(MarketEvent):
     order: FullOrderDetails = None
 
 
@@ -117,7 +117,7 @@ class MarketSubscriber:
     async def on_market_status_update(self, event: MarketStatusEvent) -> None:
         pass
 
-    async def on_order_closed(self, event: OrderClosedEvent) -> None:
+    async def on_order_status_update(self, event: OrderStatusUpdateEvent) -> None:
         pass
 
 
@@ -237,8 +237,14 @@ class OrderBookEntriesView(collections.Mapping):
     def __iter__(self) -> Iterator[Amount]:
         return iter(self._entries)
 
+    def keys(self) -> sortedcontainers.SortedKeysView:
+        return self._entries.keys()
+
     def values(self) -> sortedcontainers.SortedValuesView:
         return self._entries.values()
+
+    def index(self, price: Amount, start: int = None, stop: int = None) -> int:
+        return self._entries.index(price, start, stop)
 
 
 class Market:
@@ -327,15 +333,15 @@ class Market:
         self.logger.info(f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
         if success:
-            asyncio.create_task(self._check_order_closed(order_id))
+            asyncio.create_task(self._update_order_status(order_id))
         return success
 
-    async def _check_order_closed(self, order_id: str) -> None:
+    async def _update_order_status(self, order_id: str) -> None:
         if order_id in self._pending_order_ids:
             order_details = await self.get_order(order_id)
             if order_details.status != OrderStatus.PENDING:
                 self._pending_order_ids.remove(order_id)
-                self.raise_event(OrderClosedEvent(order=order_details))
+            self.raise_event(OrderStatusUpdateEvent(order=order_details))
 
     def subscribe(self, subscriber) -> None:
         self._subscribers.append(subscriber)
@@ -346,7 +352,7 @@ class Market:
     def raise_event(self, event: MarketEvent) -> None:
         event.market_name = self.name
         event.symbol = self.symbol
-        if isinstance(event, OrderClosedEvent):
+        if isinstance(event, OrderStatusUpdateEvent) and event.order.status != OrderStatus.PENDING:
             self.logger.info(f"{event.order.action.name} order {event.order.id} {event.order.status.name}")
         for sub in self._subscribers:
             task = None
@@ -362,7 +368,7 @@ class Market:
                 task = sub.on_order_book_init(event)
             elif isinstance(event, MarketStatusEvent):
                 task = sub.on_market_status_update(event)
-            elif isinstance(event, OrderClosedEvent):
-                task = sub.on_order_closed(event)
+            elif isinstance(event, OrderStatusUpdateEvent):
+                task = sub.on_order_status_update(event)
             if task is not None:
                 asyncio.create_task(task)

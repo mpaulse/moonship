@@ -67,3 +67,7 @@ class Strategy:
                 market.unsubscribe(self.algo)
             self.algo.running = False
             await self.algo.on_stopped()
+
+    @property
+    def is_running(self) -> bool:
+        return self.algo.running
