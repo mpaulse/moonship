@@ -312,7 +312,7 @@ class Market:
             log_msg += f"{to_amount_str(order.volume)} @ {to_amount_str(order.price)}"
         self.logger.info(log_msg)
         order_id = await self._client.place_order(order)
-        self.logger.debug(f"{order.action.name} order ID: {order_id}")
+        self.logger.info(f"{order.action.name} order {order_id} placed")
         self._pending_order_ids.add(order_id)
         return order_id
 
@@ -347,7 +347,7 @@ class Market:
         event.market_name = self.name
         event.symbol = self.symbol
         if isinstance(event, OrderClosedEvent):
-            self.logger.debug(f"Order {event.order.id} {event.order.status.name}")
+            self.logger.info(f"{event.order.action.name} order {event.order.id} {event.order.status.name}")
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):

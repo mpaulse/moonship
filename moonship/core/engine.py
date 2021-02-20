@@ -150,24 +150,24 @@ class TradeEngine:
             for market_name in strategy.market_names:
                 market = self.markets[market_name]
                 if market.market.status == MarketStatus.CLOSED:
-                    logger.info(f"Opening {market_name} market...")
                     await market.open()
-            logger.info(f"Starting {strategy.name} strategy...")
-            await strategy.algo.start()
+                    logger.info(f"Opened {market_name} market")
+            await strategy.start()
+            logger.info(f"Started {strategy.name} strategy")
 
     async def stop(self) -> None:
         for strategy_name in self.strategies.keys():
             await self.stop_strategy(strategy_name)
         for market in self.markets.values():
             if market.market.status != MarketStatus.CLOSED:
-                logger.info(f"Closing {market.market.name} market...")
                 await market.close()
+                logger.info(f"Closed {market.market.name} market")
 
     async def stop_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
         if strategy is not None:
-            logger.info(f"Stopping {strategy.name} strategy...")
-            await strategy.algo.stop()
+            await strategy.stop()
+            logger.info(f"Stopped {strategy.name} strategy")
 
     def _load_class(self, key: str, config: Config, expected_type: type) -> type:
         class_name = config.get(key)

@@ -22,7 +22,6 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import abc
 import logging
 
 from moonship.core import *
@@ -38,14 +37,13 @@ class TradingAlgo(MarketSubscriber):
         self.strategy_name = strategy_name
         self.markets = markets
         self.logger = logging.getLogger(f"moonship.strategy.{strategy_name}")
+        self.running = False
 
-    async def start(self):
-        for market in self.markets.values():
-            market.subscribe(self)
+    async def on_started(self) -> None:
+        pass
 
-    async def stop(self):
-        for market in self.markets.values():
-            market.unsubscribe(self)
+    async def on_stopped(self) -> None:
+        pass
 
 
 class Strategy:
@@ -55,3 +53,17 @@ class Strategy:
         self.algo = algo
         self.market_names = market_names
         self.auto_start = auto_start
+
+    async def start(self) -> None:
+        if not self.algo.running:
+            for market in self.algo.markets.values():
+                market.subscribe(self.algo)
+            self.algo.running = True
+            await self.algo.on_started()
+
+    async def stop(self) -> None:
+        if self.algo.running:
+            for market in self.algo.markets.values():
+                market.unsubscribe(self.algo)
+            self.algo.running = False
+            await self.algo.on_stopped()
