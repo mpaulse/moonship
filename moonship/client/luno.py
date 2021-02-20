@@ -33,6 +33,7 @@ API_BASE_URL = "https://api.luno.com/api/1"
 FEED_BASE_URL = "wss://ws.luno.com/api/1/stream"
 LUNO_MAX_DECIMALS = MAX_DECIMALS
 
+
 def to_market_status(s: str) -> MarketStatus:
     return MarketStatus.OPEN if s == "ACTIVE" \
         else MarketStatus.OPEN_POST_ONLY if s == "POSTONLY" \
@@ -133,12 +134,12 @@ class LunoClient(AbstractLunoClient, MarketClient):
                 return FullOrderDetails(
                     id=order_id,
                     action=to_order_action(order_data.get("type")),
-                    base_amount_filled=to_amount(order_data("base")),
-                    counter_amount_filled=to_amount(order_data("counter")),
+                    base_amount_filled=to_amount(order_data.get("base")),
+                    counter_amount_filled=to_amount(order_data.get("counter")),
                     limit_price=to_amount(order_data.get("limit_price")),
                     limit_volume=to_amount(order_data.get("limit_volume")),
                     status=
-                    OrderStatus.CANCELLED if order_data.get("expiration_timestamp") is not None and state == "COMPLETE"
+                    OrderStatus.CANCELLED if order_data.get("expiration_timestamp") != 0 and state == "COMPLETE"
                     else OrderStatus.FILLED if state == "COMPLETE"
                     else OrderStatus.PENDING,
                     created_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))

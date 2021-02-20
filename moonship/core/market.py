@@ -347,7 +347,7 @@ class Market:
         event.market_name = self.name
         event.symbol = self.symbol
         if isinstance(event, OrderClosedEvent):
-            self.logger.debug(f"Order {event.order.order_id} {event.order.status.name}")
+            self.logger.debug(f"Order {event.order.id} {event.order.status.name}")
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):
