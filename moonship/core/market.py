@@ -255,7 +255,7 @@ class Market:
         self._order_book = OrderBook()
         self._subscribers: list[MarketSubscriber] = []
         self._pending_order_ids: set[str] = set()
-        self.logger = logging.getLogger(f"moonship.market.{name}")
+        self._logger = logging.getLogger(f"moonship.market.{name}")
 
     @property
     def name(self) -> str:
@@ -293,6 +293,10 @@ class Market:
     def asks(self) -> OrderBookEntriesView:
         return OrderBookEntriesView(self._order_book.asks)
 
+    @property
+    def logger(self) -> logging.Logger:
+        return self._logger
+
     async def get_ticker(self) -> Ticker:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
@@ -301,7 +305,14 @@ class Market:
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
+        log_msg = f"{order.action.name} {self.symbol} "
+        if isinstance(order, MarketOrder):
+            log_msg += f"@ market for amount {to_amount_str(order.amount)}"
+        else:
+            log_msg += f"{to_amount_str(order.volume)} @ {to_amount_str(order.price)}"
+        self.logger.info(log_msg)
         order_id = await self._client.place_order(order)
+        self.logger.debug(f"{order.action.name} order ID: {order_id}")
         self._pending_order_ids.add(order_id)
         return order_id
 
@@ -313,6 +324,7 @@ class Market:
     async def cancel_order(self, order_id: str) -> bool:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
+        self.logger.info(f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
         if success:
             asyncio.create_task(self._check_order_closed(order_id))
@@ -334,6 +346,8 @@ class Market:
     def raise_event(self, event: MarketEvent) -> None:
         event.market_name = self.name
         event.symbol = self.symbol
+        if isinstance(event, OrderClosedEvent):
+            self.logger.debug(f"Order {event.order.order_id} {event.order.status.name}")
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):

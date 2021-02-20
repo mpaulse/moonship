@@ -35,14 +35,17 @@ __all__ = [
     "LimitOrder",
     "MarketOrder",
     "MarketStatus",
+    "MAX_DECIMALS",
     "OrderAction",
     "OrderStatus",
     "Ticker",
     "Timestamp",
     "to_amount",
+    "to_amount_str",
     "to_utc_timestamp"
 ]
 
+MAX_DECIMALS = 8
 
 class MarketStatus(Enum):
     CLOSED = 0
@@ -104,6 +107,16 @@ class FullOrderDetails(AbstractOrder):
 
 def to_amount(s: str) -> Amount:
     return Amount(s) if s is not None else Amount(0)
+
+
+def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
+    if max_decimals is not None:
+        a = a.quantize(Amount("0." + "".join(["0" for _ in range(0, max_decimals)])))
+    s = str(a)
+    s = s.rstrip("0")
+    if s[-1] == ".":
+        s = s[:-1]
+    return s
 
 
 def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:

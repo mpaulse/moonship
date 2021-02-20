@@ -31,7 +31,7 @@ from typing import Optional, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
 FEED_BASE_URL = "wss://ws.luno.com/api/1/stream"
-
+LUNO_MAX_DECIMALS = MAX_DECIMALS
 
 def to_market_status(s: str) -> MarketStatus:
     return MarketStatus.OPEN if s == "ACTIVE" \
@@ -41,10 +41,6 @@ def to_market_status(s: str) -> MarketStatus:
 
 def to_order_action(s: str) -> OrderAction:
     return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
-
-
-def to_amount_str(a: Amount) -> str:
-    return str(round(a, 6))  # Get an API error if there are too many decimal places
 
 
 class AbstractLunoClient(abc.ABC):
@@ -111,15 +107,15 @@ class LunoClient(AbstractLunoClient, MarketClient):
             order_type = "postorder"
             request["type"] = "BID" if order.action == OrderAction.BUY else "ASK"
             request["post_only"] = True
-            request["price"] = order.price
-            request["volume"] = order.volume
+            request["price"] = to_amount_str(order.price, LUNO_MAX_DECIMALS)
+            request["volume"] = to_amount_str(order.volume, LUNO_MAX_DECIMALS)
         else:
             order_type = "marketorder"
             request["type"] = order.action.name
             if order.action == OrderAction.BUY:
-                request["counter_volume"] = order.amount
+                request["counter_volume"] = to_amount_str(order.amount, LUNO_MAX_DECIMALS)
             else:
-                request["base_volume"] = order.amount
+                request["base_volume"] = to_amount_str(order.amount, LUNO_MAX_DECIMALS)
         try:
             async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
                 await handle_error_http_response(rsp)
