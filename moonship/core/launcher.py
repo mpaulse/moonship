@@ -77,6 +77,14 @@ def configure_logging(app_config: Config) -> None:
     logging.config.dictConfig(logging_config.dict)
 
 
+def handle_error(context: dict):
+    error = context.get("message")
+    exception = context.get("exception")
+    if isinstance(exception, Exception):
+        error = str(exception)
+    logger.exception(error, exc_info=exception)
+
+
 def launch():
     config = Config.load_from_file("config.yml" if len(sys.argv) < 2 else sys.argv[1])
     configure_logging(config)
@@ -94,6 +102,7 @@ def launch():
     logger.info(f"Version {__version__}")
     engine = None
     event_loop = asyncio.get_event_loop()
+    event_loop.set_exception_handler(lambda loop, context: handle_error(context))
     try:
         engine = TradeEngine(config)
         event_loop.create_task(engine.start())
@@ -103,6 +112,7 @@ def launch():
     except KeyboardInterrupt:
         pass
     finally:
+        # TODO: Add signal handlers to shutdown on SIGHUP, SIGTERM and SIGINT
         logger.info("Shutting down...")
         if isinstance(engine, TradeEngine):
             event_loop.run_until_complete(engine.stop())

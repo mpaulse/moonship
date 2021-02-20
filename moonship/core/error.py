@@ -22,8 +22,15 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-class StartUpException(Exception):
-    pass
+import aiohttp
+
+from dataclasses import dataclass
+
+__all__ = [
+    "handle_error_http_response",
+    "MarketException",
+    "StartUpException",
+]
 
 
 class MarketException(Exception):
@@ -31,3 +38,25 @@ class MarketException(Exception):
     def __init__(self, message: str, market_name: str):
         super().__init__(f"{market_name}: {message}")
         self.market_name = market_name
+
+
+class StartUpException(Exception):
+    pass
+
+
+@dataclass
+class HttpResponseMessage:
+    reason: str
+    body: str
+
+
+async def handle_error_http_response(response: aiohttp.ClientResponse) -> None:
+    if response.status >= 400:
+        msg = HttpResponseMessage(response.reason, await response.text())
+        response.release()
+        raise aiohttp.ClientResponseError(
+            response.request_info,
+            response.history,
+            status=response.status,
+            message=str(msg),
+            headers=response.headers)

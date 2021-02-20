@@ -50,8 +50,6 @@ __all__ = [
     "TradeEvent",
 ]
 
-logger = logging.getLogger(__name__)
-
 
 @dataclass()
 class MarketEvent:
@@ -257,6 +255,7 @@ class Market:
         self._order_book = OrderBook()
         self._subscribers: list[MarketSubscriber] = []
         self._pending_order_ids: set[str] = set()
+        self.logger = logging.getLogger(f"moonship.market.{name}")
 
     @property
     def name(self) -> str:

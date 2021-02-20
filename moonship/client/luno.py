@@ -25,15 +25,12 @@
 import abc
 import aiohttp
 import asyncio
-import logging
 
 from moonship.core import *
 from typing import Optional, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
 FEED_BASE_URL = "wss://ws.luno.com/api/1/stream"
-
-logger = logging.getLogger(__name__)
 
 
 def to_market_status(s: str) -> MarketStatus:
@@ -77,15 +74,24 @@ class AbstractLunoClient(abc.ABC):
 
 class LunoClient(AbstractLunoClient, MarketClient):
 
-    async def connect(self):
+    async def connect(self) -> None:
+        trace_config = aiohttp.TraceConfig()
+        trace_config.on_request_start.append(self.log_http_activity)
+        trace_config.on_request_chunk_sent.append(self.log_http_activity)
+        trace_config.on_response_chunk_received.append(self.log_http_activity)
+        trace_config.on_request_end.append(self.log_http_activity)
         self.http_session = aiohttp.ClientSession(
             auth=aiohttp.BasicAuth(self.key_id, self.key_secret),
-            raise_for_status=True,
-            timeout=aiohttp.ClientTimeout(total=15))
+            timeout=aiohttp.ClientTimeout(total=15),
+            trace_configs=[trace_config])
+
+    async def log_http_activity(self, session: aiohttp.ClientSession, context, params: any) -> None:
+        self.market.logger.debug(params)
 
     async def get_ticker(self) -> Ticker:
         try:
             async with self.http_session.get(f"{API_BASE_URL}/ticker", params={"pair": self.market.symbol}) as rsp:
+                await handle_error_http_response(rsp)
                 ticker = await rsp.json()
                 return Ticker(
                     timestamp=to_utc_timestamp(ticker.get("timestamp")),
@@ -116,6 +122,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
                 request["base_volume"] = order.amount
         try:
             async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
+                await handle_error_http_response(rsp)
                 order.id = (await rsp.json()).get("order_id")
                 return order.id
         except Exception as e:
@@ -124,6 +131,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
             async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
+                await handle_error_http_response(rsp)
                 order_data = await rsp.json()
                 state = order_data.get("state")
                 return FullOrderDetails(
@@ -147,6 +155,7 @@ class LunoClient(AbstractLunoClient, MarketClient):
         }
         try:
             async with self.http_session.post(f"{API_BASE_URL}/stoporder", data=request) as rsp:
+                await handle_error_http_response(rsp)
                 return bool((await rsp.json()).get("success"))
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
@@ -212,7 +221,7 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                                         status=to_market_status(updates.get("status"))))
             except Exception as e:
                 if not self.is_closed():
-                    logger.exception("Feed error", e)
+                    self.market.logger.exception("Feed error", exc_info=e)
                     await asyncio.sleep(1)
 
     def get_orders(self, action: OrderAction, order_data: list[dict], orders: list[LimitOrder]):
