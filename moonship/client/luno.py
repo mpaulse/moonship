@@ -43,34 +43,34 @@ def to_order_action(s: str) -> OrderAction:
     return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
 
 
-class LunoClient(AbstractWebMarketClient):
+class LunoClient(AbstractWebClient):
+    data_stream_seq_num = -1
 
     def __init__(self, market_name: str, app_config: Config):
-        super().__init__(market_name, app_config)
         key_id = app_config.get("moonship.luno.key_id")
         if not isinstance(key_id, str):
             raise StartUpException("Luno API key ID not configured")
         key_secret = app_config.get("moonship.luno.key_secret")
         if not isinstance(key_secret, str):
             raise StartUpException("Luno API key secret not configured")
-        self.auth = aiohttp.BasicAuth(key_id, key_secret)
-        self.data_stream_seq_num = -1
+        super().__init__(
+            market_name,
+            app_config,
+            WebClientSessionParameters(
+                stream_url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}",
+                auth=aiohttp.BasicAuth(key_id, key_secret)))
 
     async def get_ticker(self) -> Ticker:
         try:
-            async with self.http_session.get(
-                    f"{API_BASE_URL}/ticker",
-                    params={"pair": self.market.symbol},
-                    auth=self.auth) as rsp:
-                await handle_error_http_response(rsp)
+            async with self.http_session.get(f"{API_BASE_URL}/ticker", params={"pair": self.market.symbol}) as rsp:
+                await self.handle_error_response(rsp)
                 ticker = await rsp.json()
                 return Ticker(
                     timestamp=to_utc_timestamp(ticker.get("timestamp")),
                     symbol=ticker.get("pair"),
                     bid_price=to_amount(ticker.get("bid")),
                     ask_price=to_amount(ticker.get("ask")),
-                    current_price=to_amount(ticker.get("last_trade")),
-                    status=to_market_status(ticker.get("status")))
+                    current_price=to_amount(ticker.get("last_trade")))
         except Exception as e:
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
@@ -92,11 +92,8 @@ class LunoClient(AbstractWebMarketClient):
             else:
                 request["base_volume"] = to_amount_str(order.amount, LUNO_MAX_DECIMALS)
         try:
-            async with self.http_session.post(
-                    f"{API_BASE_URL}/{order_type}",
-                    data=request,
-                    auth=self.auth) as rsp:
-                await handle_error_http_response(rsp)
+            async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
+                await self.handle_error_response(rsp)
                 order.id = (await rsp.json()).get("order_id")
                 return order.id
         except Exception as e:
@@ -104,8 +101,8 @@ class LunoClient(AbstractWebMarketClient):
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
-            async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}", auth=self.auth) as rsp:
-                await handle_error_http_response(rsp)
+            async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
+                await self.handle_error_response(rsp)
                 order_data = await rsp.json()
                 state = order_data.get("state")
                 return FullOrderDetails(
@@ -131,18 +128,15 @@ class LunoClient(AbstractWebMarketClient):
             async with self.http_session.post(f"{API_BASE_URL}/stoporder", data=request) as rsp:
                 if rsp.status == 404:
                     return False
-                await handle_error_http_response(rsp)
+                await self.handle_error_response(rsp)
                 return bool((await rsp.json()).get("success"))
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
 
-    def get_data_stream_url(self) -> str:
-        return f"{STREAM_BASE_URL}/{self.market.symbol}"
-
     async def init_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
         await websocket.send_json({
-            "api_key_id": self.auth.login,
-            "api_key_secret": self.auth.password
+            "api_key_id": self.session_params.auth.login,
+            "api_key_secret": self.session_params.auth.password
         })
 
     async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:

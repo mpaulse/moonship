@@ -26,19 +26,41 @@ import abc
 import aiohttp
 import asyncio
 
+from dataclasses import dataclass
 from moonship.core import *
 from typing import Optional
 
 __all__ = [
-    "AbstractWebMarketClient"
+    "AbstractWebClient",
+    "WebClientResponseErrorMessage",
+    "WebClientSessionParameters"
 ]
 
 
-class AbstractWebMarketClient(MarketClient, abc.ABC):
+@dataclass
+class WebClientSessionParameters:
+    auth: aiohttp.BasicAuth = None
+    headers: dict = None
+    stream_url: str = None
+
+
+@dataclass
+class WebClientResponseErrorMessage:
+    reason: str
+    body: str
+
+
+class AbstractWebClient(MarketClient, abc.ABC):
     http_session: Optional[aiohttp.ClientSession]
 
-    def __init__(self, market_name: str, app_config: Config):
+    def __init__(
+            self,
+            market_name: str,
+            app_config: Config,
+            session_params: WebClientSessionParameters
+    ) -> None:
         super().__init__(market_name, app_config)
+        self.session_params = session_params
 
     async def connect(self) -> None:
         trace_config = aiohttp.TraceConfig()
@@ -48,6 +70,8 @@ class AbstractWebMarketClient(MarketClient, abc.ABC):
         trace_config.on_request_end.append(self._log_http_activity)
         self.http_session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=15),
+            auth=self.session_params.auth,
+            headers=self.session_params.headers,
             trace_configs=[trace_config])
         asyncio.create_task(self.process_data_stream())
 
@@ -67,7 +91,7 @@ class AbstractWebMarketClient(MarketClient, abc.ABC):
     async def process_data_stream(self):
         while not self.closed:
             try:
-                async with self.http_session.ws_connect(self.get_data_stream_url()) as websocket:
+                async with self.http_session.ws_connect(self.session_params.stream_url) as websocket:
                     await self.init_data_stream(websocket)
                     while not self.closed and not websocket.closed:
                         await self.on_data_stream_msg(await websocket.receive_json(), websocket)
@@ -77,13 +101,20 @@ class AbstractWebMarketClient(MarketClient, abc.ABC):
                     await asyncio.sleep(1)
 
     @abc.abstractmethod
-    def get_data_stream_url(self) -> str:
-        pass
-
-    @abc.abstractmethod
     async def init_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
         pass
 
     @abc.abstractmethod
     async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
         pass
+
+    async def handle_error_response(self, response: aiohttp.ClientResponse) -> None:
+        if response.status >= 400:
+            msg = WebClientResponseErrorMessage(response.reason, await response.text())
+            response.release()
+            raise aiohttp.ClientResponseError(
+                response.request_info,
+                response.history,
+                status=response.status,
+                message=str(msg),
+                headers=response.headers)

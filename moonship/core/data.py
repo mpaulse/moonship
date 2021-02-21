@@ -42,7 +42,8 @@ __all__ = [
     "Timestamp",
     "to_amount",
     "to_amount_str",
-    "to_utc_timestamp"
+    "to_utc_timestamp",
+    "utc_timestamp_now_msec"
 ]
 
 MAX_DECIMALS = 8
@@ -60,7 +61,6 @@ class Ticker:
     ask_price: Amount
     bid_price: Amount
     current_price: Amount
-    status: MarketStatus
 
     @property
     def spread(self) -> Amount:
@@ -122,3 +122,6 @@ def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
 
 def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:
     return Timestamp.fromtimestamp(utc_ts_msec / 1000, timezone.utc)
+
+def utc_timestamp_now_msec() -> int:
+    return int(Timestamp.now(tz=timezone.utc).timestamp() * 1000)

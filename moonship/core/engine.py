@@ -84,8 +84,7 @@ class MarketManager(MarketSubscriber):
                     symbol=event.symbol,
                     current_price=self.market.current_price,
                     bid_price=self.market.bid_price,
-                    ask_price=self.market.ask_price,
-                    status=self.market.status)))
+                    ask_price=self.market.ask_price)))
         pending_order_id = \
             event.maker_order_id if event.maker_order_id in self.market._pending_order_ids \
                 else event.taker_order_id if event.taker_order_id in self.market._pending_order_ids \
