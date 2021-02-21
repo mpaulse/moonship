@@ -21,12 +21,39 @@
 #  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+from typing import Union
 
-__version__ = "0.4"
+import aiohttp
 
-from moonship.core.config import *
-from moonship.core.data import *
-from moonship.core.error import *
-from moonship.core.market import *
-from moonship.core.strategy import *
-from moonship.core.launcher import *
+from moonship.core import *
+from moonship.client.web import *
+
+
+class BinanceClient(AbstractWebMarketClient):
+
+    async def connect(self):
+        pass
+
+    async def close(self):
+        pass
+
+    async def get_ticker(self) -> Ticker:
+        pass
+
+    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+        pass
+
+    async def get_order(self, order_id: str) -> FullOrderDetails:
+        pass
+
+    async def cancel_order(self, order_id: str) -> bool:
+        pass
+
+    def get_data_stream_url(self) -> str:
+        pass
+
+    async def init_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
+        pass
+
+    async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
+        pass
