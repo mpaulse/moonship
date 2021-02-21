@@ -113,9 +113,10 @@ def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
     if max_decimals is not None:
         a = a.quantize(Amount("0." + "".join(["0" for _ in range(0, max_decimals)])))
     s = str(a)
-    s = s.rstrip("0")
-    if s[-1] == ".":
-        s = s[:-1]
+    if "." in s:
+        s = s.rstrip("0")
+        if s[-1] == ".":
+            s = s[:-1]
     return s
 
 
