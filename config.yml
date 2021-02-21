@@ -15,11 +15,9 @@ moonship:
     bitcoin:
       symbol: BTCUSD
       client: moonship.client.test.TestClient
-      feed: moonship.client.test.TestDataFeed
     other:
       symbol: OTHER
       client: moonship.client.other.OtherClient
-      feed: moonship.client.other.OtherDataFeed
 
   logging:
     root:

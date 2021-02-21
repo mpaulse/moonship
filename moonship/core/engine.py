@@ -41,7 +41,6 @@ class MarketManager(MarketSubscriber):
 
     async def open(self) -> None:
         self.market._status = MarketStatus.OPEN
-        await self.market._feed.connect()
         await self.market._client.connect()
         # TODO: get pending orders
         ticker = await self.market.get_ticker()
@@ -55,7 +54,6 @@ class MarketManager(MarketSubscriber):
 
     async def close(self) -> None:
         await self.market._client.close()
-        await self.market._feed.close()
         self.market._current_price = Amount(0)
         self.market._order_book.clear()
         self.market._status = MarketStatus.CLOSED
@@ -113,9 +111,7 @@ class TradeEngine:
                 raise StartUpException(f"No symbol configured for {market_name} market")
             cls = self._load_class("client", market_config, MarketClient)
             client = cls(market_name, config)
-            cls = self._load_class("feed", market_config, MarketFeed)
-            feed = cls(market_name, config)
-            self.markets[market_name] = MarketManager(Market(market_name, symbol, client, feed))
+            self.markets[market_name] = MarketManager(Market(market_name, symbol, client))
 
     def _init_strategies(self, config: Config) -> None:
         strategies_config = config.get("moonship.strategies")

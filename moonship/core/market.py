@@ -36,7 +36,6 @@ from typing import Iterator, Union
 __all__ = [
     "Market",
     "MarketClient",
-    "MarketFeed",
     "MarketEvent",
     "MarketSubscriber",
     "MarketStatusEvent",
@@ -124,7 +123,7 @@ class MarketSubscriber:
 class MarketClient(abc.ABC):
     market: "Market" = None
 
-    def __init__(self, market_name: str, app_config: Config):
+    def __init__(self, market_name: str, app_config: Config) -> None:
         pass
 
     @abc.abstractmethod
@@ -149,21 +148,6 @@ class MarketClient(abc.ABC):
 
     @abc.abstractmethod
     async def cancel_order(self, order_id: str) -> bool:
-        pass
-
-
-class MarketFeed(abc.ABC):
-    market: "Market" = None
-
-    def __init__(self, market_name: str, app_config: Config):
-        pass
-
-    @abc.abstractmethod
-    async def connect(self):
-        pass
-
-    @abc.abstractmethod
-    async def close(self):
         pass
 
 
@@ -252,13 +236,11 @@ class OrderBookEntriesView(collections.Mapping):
 
 class Market:
 
-    def __init__(self, name: str, symbol: str, client: MarketClient, feed: MarketFeed) -> None:
+    def __init__(self, name: str, symbol: str, client: MarketClient) -> None:
         self._name = name
         self._symbol = symbol
         self._client = client
         self._client.market = self
-        self._feed = feed
-        self._feed.market = self
         self._current_price = Amount(0)
         self._status = MarketStatus.CLOSED
         self._order_book = OrderBook()

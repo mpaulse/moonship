@@ -22,7 +22,6 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import abc
 import aiohttp
 import asyncio
 
@@ -30,7 +29,7 @@ from moonship.core import *
 from typing import Optional, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
-FEED_BASE_URL = "wss://ws.luno.com/api/1/stream"
+STREAM_BASE_URL = "wss://ws.luno.com/api/1/stream"
 LUNO_MAX_DECIMALS = MAX_DECIMALS
 
 
@@ -44,32 +43,17 @@ def to_order_action(s: str) -> OrderAction:
     return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
 
 
-class AbstractLunoClient(abc.ABC):
+class LunoClient(MarketClient):
     http_session: Optional[aiohttp.ClientSession]
 
     def __init__(self, market_name: str, app_config: Config):
+        super().__init__(market_name, app_config)
         self.key_id = app_config.get("moonship.luno.key_id")
         if not isinstance(self.key_id, str):
             raise StartUpException("Luno API key ID not configured")
         self.key_secret = app_config.get("moonship.luno.key_secret")
         if not isinstance(self.key_secret, str):
             raise StartUpException("Luno API key secret not configured")
-
-    @abc.abstractmethod
-    async def connect(self):
-        pass
-
-    async def close(self):
-        if self.http_session is not None:
-            s = self.http_session
-            self.http_session = None
-            await s.close()
-
-    def is_closed(self):
-        return self.http_session is None or self.http_session.closed
-
-
-class LunoClient(AbstractLunoClient, MarketClient):
 
     async def connect(self) -> None:
         trace_config = aiohttp.TraceConfig()
@@ -81,6 +65,16 @@ class LunoClient(AbstractLunoClient, MarketClient):
             auth=aiohttp.BasicAuth(self.key_id, self.key_secret),
             timeout=aiohttp.ClientTimeout(total=15),
             trace_configs=[trace_config])
+        asyncio.create_task(self.handle_data_stream())
+
+    async def close(self) -> None:
+        if self.http_session is not None:
+            s = self.http_session
+            self.http_session = None
+            await s.close()
+
+    def is_closed(self) -> bool:
+        return self.http_session is None or self.http_session.closed
 
     async def log_http_activity(self, session: aiohttp.ClientSession, context, params: any) -> None:
         self.market.logger.debug(params)
@@ -157,21 +151,11 @@ class LunoClient(AbstractLunoClient, MarketClient):
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
 
-
-class LunoFeed(AbstractLunoClient, MarketFeed):
-
-    def __init__(self, market_name: str, app_config: Config):
-        super().__init__(market_name, app_config)
-
-    async def connect(self):
-        self.http_session = aiohttp.ClientSession()
-        asyncio.create_task(self.process_feed())
-
-    async def process_feed(self):
+    async def handle_data_stream(self):
         while not self.is_closed():
             try:
                 seq_no = -1
-                async with self.http_session.ws_connect(f"{FEED_BASE_URL}/{self.market.symbol}") as websocket:
+                async with self.http_session.ws_connect(f"{STREAM_BASE_URL}/{self.market.symbol}") as websocket:
                     await websocket.send_json({
                         "api_key_id": self.key_id,
                         "api_key_secret": self.key_secret
@@ -181,8 +165,8 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                         if seq_no < 0:
                             seq_no = int(msg.get("sequence"))
                             orders: list[LimitOrder] = []
-                            self.get_orders(OrderAction.BUY, msg.get("bids"), orders)
-                            self.get_orders(OrderAction.SELL, msg.get("asks"), orders)
+                            self._get_orders_from_stream(OrderAction.BUY, msg.get("bids"), orders)
+                            self._get_orders_from_stream(OrderAction.SELL, msg.get("asks"), orders)
                             self.market.raise_event(
                                 OrderBookInitEvent(
                                     timestamp=to_utc_timestamp(msg.get("timestamp")),
@@ -191,11 +175,11 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                         elif isinstance(msg, dict):
                             seq_no += 1
                             if seq_no != int(msg.get("sequence")):
-                                raise MarketException("Feed out of sequence", self.market.name)
+                                raise MarketException("Data stream out of sequence", self.market.name)
                             timestamp = to_utc_timestamp(msg.get("timestamp"))
                             updates = msg.get("trade_updates")
                             if updates is not None:
-                                trades = self.get_trades(timestamp, updates)
+                                trades = self._get_trades_from_stream(timestamp, updates)
                                 for trade in trades:
                                     self.market.raise_event(trade)
                             updates = msg.get("create_update")
@@ -203,7 +187,9 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                                 self.market.raise_event(
                                     OrderBookItemAddedEvent(
                                         timestamp=timestamp,
-                                        order=self.get_order(to_order_action(updates.get("type")), updates)))
+                                        order=self._get_order_from_stream(
+                                            to_order_action(updates.get("type")),
+                                            updates)))
                             updates = msg.get("delete_update")
                             if updates is not None:
                                 self.market.raise_event(
@@ -221,18 +207,18 @@ class LunoFeed(AbstractLunoClient, MarketFeed):
                     self.market.logger.exception("Feed error", exc_info=e)
                     await asyncio.sleep(1)
 
-    def get_orders(self, action: OrderAction, order_data: list[dict], orders: list[LimitOrder]):
+    def _get_orders_from_stream(self, action: OrderAction, order_data: list[dict], orders: list[LimitOrder]):
         for data in order_data:
-            orders.append(self.get_order(action, data))
+            orders.append(self._get_order_from_stream(action, data))
 
-    def get_order(self, action: OrderAction, order_data) -> LimitOrder:
+    def _get_order_from_stream(self, action: OrderAction, order_data) -> LimitOrder:
         return LimitOrder(
             id=order_data.get("id") if "id" in order_data else order_data.get("order_id"),
             action=action,
             price=to_amount(order_data.get("price")),
             volume=to_amount(order_data.get("volume")))
 
-    def get_trades(self, timestamp, trade_data: list[dict]) -> list[TradeEvent]:
+    def _get_trades_from_stream(self, timestamp, trade_data: list[dict]) -> list[TradeEvent]:
         trades: list[TradeEvent] = []
         for data in trade_data:
             trades.append(
