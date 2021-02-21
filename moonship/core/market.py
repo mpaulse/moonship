@@ -243,6 +243,9 @@ class OrderBookEntriesView(collections.Mapping):
     def values(self) -> sortedcontainers.SortedValuesView:
         return self._entries.values()
 
+    def items(self) -> sortedcontainers.SortedItemsView:
+        return self._entries.items()
+
     def index(self, price: Amount, start: int = None, stop: int = None) -> int:
         return self._entries.index(price, start, stop)
 
@@ -318,7 +321,7 @@ class Market:
             log_msg += f"{to_amount_str(order.volume)} @ {to_amount_str(order.price)}"
         self.logger.info(log_msg)
         order_id = await self._client.place_order(order)
-        self.logger.info(f"{order.action.name} order {order_id} placed")
+        self.logger.info(f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
         self._pending_order_ids.add(order_id)
         return order_id
 
@@ -333,7 +336,7 @@ class Market:
         self.logger.info(f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
         if success:
-            asyncio.create_task(self._update_order_status(order_id))
+            await self._update_order_status(order_id)
         return success
 
     async def _update_order_status(self, order_id: str) -> None:
