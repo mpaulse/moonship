@@ -355,8 +355,11 @@ class Market:
     def raise_event(self, event: MarketEvent) -> None:
         event.market_name = self.name
         event.symbol = self.symbol
-        if isinstance(event, OrderStatusUpdateEvent) and event.order.status != OrderStatus.PENDING:
-            self.logger.info(f"{event.order.action.name} order {event.order.id} {event.order.status.name}")
+        if isinstance(event, OrderStatusUpdateEvent):
+            status = event.order.status.name \
+                if event.order.status != OrderStatus.PENDING \
+                else "PARTIALLY FILLED"
+            self.logger.info(f"{event.order.action.name} order {event.order.id} {status}")
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):
