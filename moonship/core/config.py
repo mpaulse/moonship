@@ -29,8 +29,17 @@ from collections import ItemsView
 from typing import Iterator, Union
 
 __all__ = [
-    "Config"
+    "Config",
+    "ConfigItemsView"
 ]
+
+
+def convert_config_value(value: any, parent_key: str, key: str) -> any:
+    if isinstance(value, dict):
+        value = Config(value, f"{parent_key}.{key}" if parent_key is not None else key)
+    elif isinstance(value, float):
+        value = str(value)
+    return value
 
 
 class ConfigItemsView(ItemsView):
@@ -50,9 +59,7 @@ class ConfigItemsView(ItemsView):
 
     def __iter__(self) -> Iterator[tuple[str, Union["Config", any]]]:
         for key in self._mapping:
-            value = self._mapping[key]
-            if isinstance(value, dict):
-                value = Config(value, f"{self.key}.{key}" if self.key is not None else key)
+            value = convert_config_value(self._mapping[key], self.key, key)
             yield key, value
 
 
@@ -79,9 +86,7 @@ class Config:
             value = value.get(keys[i])
             if value is None or (not isinstance(value, dict) and i < len(keys) - 1):
                 return None
-        if isinstance(value, dict):
-            value = Config(value, f"{self.key}.{key}" if self.key is not None else key)
-        return value
+        return convert_config_value(value, self.key, key)
 
     @staticmethod
     def load_from_file(config_filename: str) -> "Config":
