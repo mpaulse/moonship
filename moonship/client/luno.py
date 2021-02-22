@@ -87,8 +87,8 @@ class LunoClient(MarketClient):
                 return Ticker(
                     timestamp=to_utc_timestamp(ticker.get("timestamp")),
                     symbol=ticker.get("pair"),
-                    ask_price=to_amount(ticker.get("bid")),
-                    bid_price=to_amount(ticker.get("ask")),
+                    bid_price=to_amount(ticker.get("bid")),
+                    ask_price=to_amount(ticker.get("ask")),
                     current_price=to_amount(ticker.get("last_trade")),
                     status=to_market_status(ticker.get("status")))
         except Exception as e:
