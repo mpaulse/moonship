@@ -146,6 +146,8 @@ class LunoClient(MarketClient):
         }
         try:
             async with self.http_session.post(f"{API_BASE_URL}/stoporder", data=request) as rsp:
+                if rsp.status == 404:
+                    return False
                 await handle_error_http_response(rsp)
                 return bool((await rsp.json()).get("success"))
         except Exception as e:
