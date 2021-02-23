@@ -33,8 +33,7 @@ from moonship.core import *
 from moonship.client.web import *
 from typing import Union
 
-API_BASE_URL = "https://api.binance.com"
-API_V3_BASE_URL = API_BASE_URL + "/api/v3"
+API_BASE_URL = "https://api.binance.com/api/v3"
 STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
 
 
@@ -69,23 +68,71 @@ class BinanceClient(AbstractWebClient):
 
     async def _get_price_ticker(self) -> dict:
         async with self.http_session.get(
-                f"{API_V3_BASE_URL}/ticker/price",
+                f"{API_BASE_URL}/ticker/price",
                 params={"symbol": self.market.symbol}) as rsp:
             await self.handle_error_response(rsp)
             return await rsp.json()
 
     async def _get_order_book_ticker(self) -> dict:
         async with self.http_session.get(
-                f"{API_V3_BASE_URL}/ticker/bookTicker",
+                f"{API_BASE_URL}/ticker/bookTicker",
                 params={"symbol": self.market.symbol}) as rsp:
             await self.handle_error_response(rsp)
             return await rsp.json()
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
-        pass
+        request = {
+            "symbol": self.market.symbol,
+            "side": order.action.name,
+            "type": "MARKET" if isinstance(order, MarketOrder)
+            else "LIMIT_MAKER" if order.post_only
+            else "LIMIT",
+            "newOrderRespType": "ACK"
+        }
+        if isinstance(order, LimitOrder):
+            request["price"] = to_amount_str(order.price)
+            request["quantity"] = to_amount_str(order.volume)
+        else:
+            if order.is_base_amount:
+                request["quantity"] = to_amount_str(order.amount)
+            else:
+                request["quoteOrderQty"] = to_amount_str(order.amount)
+        request = self._url_encode_and_sign(request)
+        try:
+            async with self.http_session.post(
+                    f"{API_BASE_URL}/order",
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data=request) as rsp:
+                await self.handle_error_response(rsp)
+                order.id = (await rsp.json()).get("orderId")
+                return order.id
+        except Exception as e:
+            raise MarketException("Failed to place order", self.market.name) from e
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
-        pass
+        params = self._url_encode_and_sign({
+            "symbol": self.market.symbol,
+            "orderId": order_id
+        })
+        try:
+            async with self.http_session.get(f"{API_BASE_URL}/order", params=params) as rsp:
+                await self.handle_error_response(rsp)
+                order_data = await rsp.json()
+                status = order_data.get("status")
+                return FullOrderDetails(
+                    id=order_id,
+                    action=OrderAction[order_data.get("side")],
+                    base_amount_filled=to_amount(order_data.get("executedQty")),
+                    counter_amount_filled=to_amount(order_data.get("cummulativeQuoteQty")),
+                    limit_price=to_amount(order_data.get("price")),
+                    limit_volume=to_amount(order_data.get("origQty")),
+                    status=OrderStatus.PENDING if status == "NEW"
+                    else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
+                    else OrderStatus.CANCELLED if status == "CANCELED"
+                    else OrderStatus[status],
+                    creation_timestamp=to_utc_timestamp(order_data.get("time")))
+        except Exception as e:
+            raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
 
     async def cancel_order(self, order_id: str) -> bool:
         request = self._url_encode_and_sign({
@@ -95,7 +142,7 @@ class BinanceClient(AbstractWebClient):
         })
         try:
             async with self.http_session.delete(
-                    f"{API_V3_BASE_URL}/order",
+                    f"{API_BASE_URL}/order",
                     headers={"Content-Type": "application/x-www-form-urlencoded"},
                     data=request) as rsp:
                 if rsp.status == 404:
@@ -109,9 +156,6 @@ class BinanceClient(AbstractWebClient):
         params = urllib.parse.urlencode(data, encoding="utf-8")
         signature = hmac.new(bytes(self.secret_key), bytes(params), hashlib.sha256).hexdigest()
         return f"{params}&signature={signature}"
-
-    def get_data_stream_url(self) -> str:
-        pass
 
     async def init_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
         pass

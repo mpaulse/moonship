@@ -299,7 +299,8 @@ class Market:
         if self.logger.isEnabledFor(logging.INFO):
             log_msg = f"{order.action.name} {self.symbol} "
             if isinstance(order, MarketOrder):
-                log_msg += f"@ market for amount {to_amount_str(order.amount)}"
+                log_msg += \
+                    f"@ market for {'base' if order.is_base_amount else 'counter'} amount {to_amount_str(order.amount)}"
             else:
                 log_msg += f"{to_amount_str(order.volume)} @ {to_amount_str(order.price)}"
             self.logger.info(log_msg)
@@ -339,10 +340,7 @@ class Market:
         event.market_name = self.name
         event.symbol = self.symbol
         if isinstance(event, OrderStatusUpdateEvent):
-            status = event.order.status.name \
-                if event.order.status != OrderStatus.PENDING \
-                else "PARTIALLY FILLED"
-            self.logger.info(f"{event.order.action.name} order {event.order.id} {status}")
+            self.logger.info(f"{event.order.action.name} order {event.order.id} {event.order.status.value}")
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):
