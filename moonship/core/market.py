@@ -64,7 +64,6 @@ class TickerEvent(MarketEvent):
 
 @dataclass()
 class OrderBookInitEvent(MarketEvent):
-    status: MarketStatus = MarketStatus.OPEN
     orders: list[LimitOrder] = field(default_factory=list)
 
 

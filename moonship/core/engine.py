@@ -59,7 +59,6 @@ class MarketManager(MarketSubscriber):
         self.market._status = MarketStatus.CLOSED
 
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
-        self.market._status = event.status
         self.market._order_book.clear()
         for order in event.orders:
             self.market._order_book.add_order(order)

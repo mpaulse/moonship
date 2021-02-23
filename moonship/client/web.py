@@ -91,8 +91,9 @@ class AbstractWebClient(MarketClient, abc.ABC):
     async def process_data_stream(self):
         while not self.closed:
             try:
+                await self.on_before_data_stream_connect()
                 async with self.http_session.ws_connect(self.session_params.stream_url) as websocket:
-                    await self.init_data_stream(websocket)
+                    await self.on_after_data_stream_connect(websocket)
                     while not self.closed and not websocket.closed:
                         await self.on_data_stream_msg(await websocket.receive_json(), websocket)
             except Exception as e:
@@ -100,8 +101,10 @@ class AbstractWebClient(MarketClient, abc.ABC):
                     self.market.logger.exception("Data stream error", exc_info=e)
                     await asyncio.sleep(1)
 
-    @abc.abstractmethod
-    async def init_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_before_data_stream_connect(self) -> None:
+        pass
+
+    async def on_after_data_stream_connect(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
         pass
 
     @abc.abstractmethod

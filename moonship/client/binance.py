@@ -38,6 +38,8 @@ STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
 
 
 class BinanceClient(AbstractWebClient):
+    last_order_book_update_id = -1
+    order_book_event_buf: list[dict] = []
 
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.binance.api_key")
@@ -46,11 +48,12 @@ class BinanceClient(AbstractWebClient):
         self.secret_key = app_config.get("moonship.binance.secret_key")
         if not isinstance(self.secret_key, str):
             raise StartUpException("Binance secret key not configured")
+        symbol = app_config.get(f"moonship.markets.{market_name}.symbol").lower()
         super().__init__(
             market_name,
             app_config,
             WebClientSessionParameters(
-                stream_url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}",
+                stream_url=f"{STREAM_BASE_URL}?streams={symbol}@trade/{symbol}@depth",
                 headers={"X-MBX-APIKEY": api_key}))
 
     async def get_ticker(self) -> Ticker:
@@ -157,8 +160,98 @@ class BinanceClient(AbstractWebClient):
         signature = hmac.new(bytes(self.secret_key), bytes(params), hashlib.sha256).hexdigest()
         return f"{params}&signature={signature}"
 
-    async def init_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
-        pass
+    async def on_before_data_stream_connect(self) -> None:
+        self.last_order_book_update_id = -1
+        self.order_book_event_buf.clear()
+
+    def _get_orders_from_stream(
+            self,
+            action: OrderAction,
+            order_book_entries: list[[str, str]],
+            orders: list[LimitOrder]
+    ):
+        for entry in order_book_entries:
+            orders.append(self._get_order_from_stream(action, entry))
+
+    def _get_order_from_stream(self, action: OrderAction, order_book_entry: [str, str]):
+        # The Binance order book does not contain individual order granularity,
+        # so create mock orders with the order ID = action@price.
+        price = order_book_entry[0]
+        volume = to_amount(order_book_entry[1])
+        return LimitOrder(id=f"{action.name}@{price}", action=action, price=to_amount(price), volume=volume)
 
     async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
-        pass
+        if isinstance(msg, dict):
+            data = msg.get("data")
+            if isinstance(data, dict):
+                event = data.get("e")
+                if event == "trade":
+                    self._on_trade_stream_event(data)
+                elif event == "depthUpdate":
+                    self._on_order_book_stream_event(data)
+
+    def _on_trade_stream_event(self, event: dict) -> None:
+        if isinstance(event, dict):
+            buyer_order_id = event.get("b")
+            buyer_is_maker = event.get("m")
+            seller_order_id = event.get("a")
+            base_amount = to_amount(event.get("q"))  # Quantity
+            self.market.raise_event(
+                TradeEvent(
+                    timestamp=to_utc_timestamp(event.get("T")),
+                    base_amount=base_amount,
+                    counter_amount=base_amount * to_amount(event.get("p")),  # Convert price to quote quantity
+                    maker_order_id=buyer_order_id if buyer_is_maker else seller_order_id,
+                    taker_order_id=buyer_order_id if not buyer_is_maker else seller_order_id))
+
+    def _on_order_book_stream_event(self, event: dict) -> None:
+        if self.last_order_book_update_id < 0:
+            if len(self.order_book_event_buf) == 0:
+                asyncio.create_task(self._init_order_book())
+            self.order_book_event_buf.append(event)
+        else:
+            first_update_id = event.get("U")
+            last_update_id = event.get("u")
+            if first_update_id <= self.last_order_book_update_id + 1 <= last_update_id:
+                timestamp = to_utc_timestamp(event.get("E"))
+                self._raise_order_book_update_events(OrderAction.BUY, event.get("b"), timestamp)  # Bids
+                self._raise_order_book_update_events(OrderAction.SELL, event.get("a"), timestamp)  # Asks
+                self.last_order_book_update_id = last_update_id
+
+    async def _init_order_book(self) -> None:
+        params = {
+            "symbol": self.market.symbol,
+            "limit": 100
+        }
+        try:
+            async with self.http_session.get(f"{API_BASE_URL}/depth", params=params) as rsp:
+                await self.handle_error_response(rsp)
+                data = await rsp.json()
+                orders: list[LimitOrder] = []
+                self.last_order_book_update_id = int(data.get("lastUpdateId"))
+                self._get_orders_from_stream(OrderAction.BUY, data.get("bids"), orders)
+                self._get_orders_from_stream(OrderAction.SELL, data.get("asks"), orders)
+                self.market.raise_event(
+                    OrderBookInitEvent(
+                        timestamp=Timestamp.now(tz=timezone.utc),
+                        orders=orders))
+                for event in self.order_book_event_buf:
+                    self._on_order_book_stream_event(event)
+                self.order_book_event_buf.clear()
+        except Exception as e:
+            raise MarketException(f"Could not retrieve order book information", self.market.name) from e
+
+    def _raise_order_book_update_events(
+            self,
+            action: OrderAction,
+            order_book_entries: list[[str, str]],
+            timestamp: Timestamp
+    ):
+        if isinstance(order_book_entries, list):
+            for entry in order_book_entries:
+                if isinstance(entry, list):
+                    order = self._get_order_from_stream(action, entry)
+                    if order.volume > 0:
+                        self.market.raise_event(OrderBookItemAddedEvent(timestamp=timestamp, order=order))
+                    else:
+                        self.market.raise_event(OrderBookItemRemovedEvent(timestamp=timestamp, order_id=order.id))
