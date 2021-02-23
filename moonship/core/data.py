@@ -42,7 +42,8 @@ __all__ = [
     "Timestamp",
     "to_amount",
     "to_amount_str",
-    "to_utc_timestamp"
+    "to_utc_timestamp",
+    "utc_timestamp_now_msec"
 ]
 
 MAX_DECIMALS = 8
@@ -60,7 +61,6 @@ class Ticker:
     ask_price: Amount
     bid_price: Amount
     current_price: Amount
-    status: MarketStatus
 
     @property
     def spread(self) -> Amount:
@@ -73,9 +73,13 @@ class OrderAction(Enum):
 
 
 class OrderStatus(Enum):
-    PENDING = 0
-    FILLED = 1
-    CANCELLED = 2
+    PENDING = "PENDING"
+    PARTIALLY_FILLED = "PARTIALLY FILLED",
+    FILLED = "FILLED"
+    CANCELLATION_PENDING = "CANCELLATION PENDING",
+    CANCELLED = "CANCELLED",
+    REJECTED = "REJECTED",
+    EXPIRED = "EXPIRED"
 
 
 @dataclass()
@@ -87,12 +91,14 @@ class AbstractOrder(abc.ABC):
 @dataclass()
 class MarketOrder(AbstractOrder):
     amount: Amount = Amount(0)
+    is_base_amount: bool = True
 
 
 @dataclass()
 class LimitOrder(AbstractOrder):
     price: Amount = Amount(0)
     volume: Amount = Amount(0)
+    post_only: bool = True
 
 
 @dataclass()
@@ -102,7 +108,7 @@ class FullOrderDetails(AbstractOrder):
     limit_price: Amount = Amount(0)
     limit_volume: Amount = Amount(0)
     status: OrderStatus = OrderStatus.PENDING
-    created_timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
+    creation_timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
 
 
 def to_amount(s: str) -> Amount:
@@ -122,3 +128,6 @@ def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
 
 def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:
     return Timestamp.fromtimestamp(utc_ts_msec / 1000, timezone.utc)
+
+def utc_timestamp_now_msec() -> int:
+    return int(Timestamp.now(tz=timezone.utc).timestamp() * 1000)

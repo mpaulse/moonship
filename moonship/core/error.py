@@ -27,7 +27,6 @@ import aiohttp
 from dataclasses import dataclass
 
 __all__ = [
-    "handle_error_http_response",
     "MarketException",
     "StartUpException",
 ]
@@ -42,21 +41,3 @@ class MarketException(Exception):
 
 class StartUpException(Exception):
     pass
-
-
-@dataclass
-class HttpResponseMessage:
-    reason: str
-    body: str
-
-
-async def handle_error_http_response(response: aiohttp.ClientResponse) -> None:
-    if response.status >= 400:
-        msg = HttpResponseMessage(response.reason, await response.text())
-        response.release()
-        raise aiohttp.ClientResponseError(
-            response.request_info,
-            response.history,
-            status=response.status,
-            message=str(msg),
-            headers=response.headers)
