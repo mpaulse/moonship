@@ -31,7 +31,7 @@ import sortedcontainers
 from dataclasses import dataclass, field
 from datetime import timezone
 from moonship.core import *
-from typing import Iterator, Union
+from typing import Iterator, Optional, Union
 
 __all__ = [
     "Market",
@@ -50,47 +50,47 @@ __all__ = [
 ]
 
 
-@dataclass()
+@dataclass
 class MarketEvent:
     timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
     market_name: str = None
     symbol: str = None
 
 
-@dataclass()
+@dataclass
 class TickerEvent(MarketEvent):
     ticker: Ticker = None
 
 
-@dataclass()
+@dataclass
 class OrderBookInitEvent(MarketEvent):
     orders: list[LimitOrder] = field(default_factory=list)
 
 
-@dataclass()
+@dataclass
 class OrderBookItemAddedEvent(MarketEvent):
     order: LimitOrder = None
 
 
-@dataclass()
+@dataclass
 class OrderBookItemRemovedEvent(MarketEvent):
     order_id: str = None
 
 
-@dataclass()
+@dataclass
 class TradeEvent(MarketEvent):
-    base_amount: Amount = Amount(0)
-    counter_amount: Amount = Amount(0)
+    quantity: Amount = Amount(0)
+    price: Amount = Amount(0)
     maker_order_id: str = None
     taker_order_id: str = None
 
 
-@dataclass()
+@dataclass
 class MarketStatusEvent(MarketEvent):
     status: MarketStatus = MarketStatus.OPEN
 
 
-@dataclass()
+@dataclass
 class OrderStatusUpdateEvent(MarketEvent):
     order: FullOrderDetails = None
 
@@ -120,9 +120,9 @@ class MarketSubscriber:
 
 
 class MarketClient(abc.ABC):
-    market: "Market" = None
 
     def __init__(self, market_name: str, app_config: Config) -> None:
+        self.market: Optional["Market"] = None
         pass
 
     @abc.abstractmethod
@@ -164,17 +164,19 @@ class OrderBookEntry:
         return self._price
 
     @property
-    def volume(self) -> Amount:
-        volume = Amount(0)
+    def quantity(self) -> Amount:
+        quantity = Amount(0)
         for order in self._orders.values():
-            volume += order.volume
-        return volume
+            quantity += order.quantity
+        return quantity
 
 
 class OrderBook:
-    bids = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
-    asks = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
-    order_entry_index: dict[str, OrderBookEntry] = {}
+
+    def __init__(self):
+        self.bids = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
+        self.asks = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
+        self.order_entry_index: dict[str, OrderBookEntry] = {}
 
     def add_order(self, order: LimitOrder) -> None:
         entries = self._get_entries_list(order)
@@ -192,7 +194,7 @@ class OrderBook:
             order = entry._orders.get(order_id)
             if order is not None:
                 del entry._orders[order_id]
-                if entry.volume == 0:
+                if entry.quantity == 0:
                     entries = self._get_entries_list(order)
                     del entries[entry.price]
             del self.order_entry_index[order_id]
@@ -298,10 +300,12 @@ class Market:
         if self.logger.isEnabledFor(logging.INFO):
             log_msg = f"{order.action.name} {self.symbol} "
             if isinstance(order, MarketOrder):
-                log_msg += \
-                    f"@ market for {'base' if order.is_base_amount else 'counter'} amount {to_amount_str(order.amount)}"
+                if order.is_base_quantity:
+                    log_msg += f"{to_amount_str(order.quantity)} @ market"
+                else:
+                    log_msg += f"@ market for {to_amount_str(order.quantity)}"
             else:
-                log_msg += f"{to_amount_str(order.volume)} @ {to_amount_str(order.price)}"
+                log_msg += f"{to_amount_str(order.quantity)} @ {to_amount_str(order.price)}"
             self.logger.info(log_msg)
         order_id = await self._client.place_order(order)
         self.logger.info(f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")

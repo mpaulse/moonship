@@ -73,7 +73,7 @@ class MarketManager(MarketSubscriber):
         self.market._status = event.status
 
     async def on_trade(self, event: TradeEvent) -> None:
-        self.market._current_price = event.counter_amount / event.base_amount
+        self.market._current_price = event.price
         self.market._order_book.remove_order(event.maker_order_id)
         self.market.raise_event(
             TickerEvent(
@@ -92,10 +92,10 @@ class MarketManager(MarketSubscriber):
 
 
 class TradeEngine:
-    markets: dict[str, MarketManager] = {}
-    strategies: dict[str, Strategy] = {}
 
     def __init__(self, config: Config) -> None:
+        self.markets: dict[str, MarketManager] = {}
+        self.strategies: dict[str, Strategy] = {}
         self._init_markets(config)
         self._init_strategies(config)
 

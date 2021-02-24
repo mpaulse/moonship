@@ -52,7 +52,7 @@ class LogMarketInfo(TradingAlgo):
             for i in range(0, n):
                 b = bids[-1 - i]
                 a = asks[i]
-                s += f"{b.volume:8} {b.price:8} | {a.price:8} {a.volume:8}\n"
+                s += f"{b.quantity:8} {b.price:8} | {a.price:8} {a.quantity:8}\n"
             s += "\n"
             s += f"Price: {market.current_price.quantize(market.bid_price)}\n"
             s += f"Bid: {market.bid_price}\n"

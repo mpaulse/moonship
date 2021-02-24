@@ -51,16 +51,17 @@ class WebClientResponseErrorMessage:
 
 
 class AbstractWebClient(MarketClient, abc.ABC):
-    http_session: Optional[aiohttp.ClientSession]
+
+    # TODO: Implement rate-limiting on 429 errors to avoid bans
 
     def __init__(
             self,
             market_name: str,
             app_config: Config,
-            session_params: WebClientSessionParameters
-    ) -> None:
+            session_params: WebClientSessionParameters) -> None:
         super().__init__(market_name, app_config)
         self.session_params = session_params
+        self.http_session: Optional[aiohttp.ClientSession] = None
 
     async def connect(self) -> None:
         trace_config = aiohttp.TraceConfig()

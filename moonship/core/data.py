@@ -48,13 +48,14 @@ __all__ = [
 
 MAX_DECIMALS = 8
 
+
 class MarketStatus(Enum):
     CLOSED = 0
     OPEN = 1
     OPEN_POST_ONLY = 2
 
 
-@dataclass()
+@dataclass
 class Ticker:
     timestamp: Timestamp
     symbol: str
@@ -82,33 +83,33 @@ class OrderStatus(Enum):
     EXPIRED = "EXPIRED"
 
 
-@dataclass()
+@dataclass
 class AbstractOrder(abc.ABC):
     action: OrderAction
     id: str = None
 
 
-@dataclass()
+@dataclass
 class MarketOrder(AbstractOrder):
-    amount: Amount = Amount(0)
-    is_base_amount: bool = True
+    quantity: Amount = Amount(0)
+    is_base_quantity: bool = True
 
 
-@dataclass()
+@dataclass
 class LimitOrder(AbstractOrder):
     price: Amount = Amount(0)
-    volume: Amount = Amount(0)
+    quantity: Amount = Amount(0)
     post_only: bool = True
 
 
-@dataclass()
+@dataclass
 class FullOrderDetails(AbstractOrder):
-    base_amount_filled: Amount = Amount(0)
-    counter_amount_filled: Amount = Amount(0)
+    quantity_filled: Amount = Amount(0)
+    quote_quantity_filled: Amount = Amount(0)
     limit_price: Amount = Amount(0)
-    limit_volume: Amount = Amount(0)
+    limit_quantity: Amount = Amount(0)
     status: OrderStatus = OrderStatus.PENDING
-    creation_timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
+    creation_timestamp: Timestamp = None
 
 
 def to_amount(s: str) -> Amount:
@@ -128,6 +129,7 @@ def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
 
 def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:
     return Timestamp.fromtimestamp(utc_ts_msec / 1000, timezone.utc)
+
 
 def utc_timestamp_now_msec() -> int:
     return int(Timestamp.now(tz=timezone.utc).timestamp() * 1000)

@@ -38,8 +38,6 @@ STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
 
 
 class BinanceClient(AbstractWebClient):
-    last_order_book_update_id = -1
-    order_book_event_buf: list[dict] = []
 
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.binance.api_key")
@@ -48,6 +46,8 @@ class BinanceClient(AbstractWebClient):
         self.secret_key = app_config.get("moonship.binance.secret_key")
         if not isinstance(self.secret_key, str):
             raise StartUpException("Binance secret key not configured")
+        self.last_order_book_update_id = -1
+        self.order_book_event_buf: list[dict] = []
         symbol = app_config.get(f"moonship.markets.{market_name}.symbol").lower()
         super().__init__(
             market_name,
@@ -94,12 +94,12 @@ class BinanceClient(AbstractWebClient):
         }
         if isinstance(order, LimitOrder):
             request["price"] = to_amount_str(order.price)
-            request["quantity"] = to_amount_str(order.volume)
+            request["quantity"] = to_amount_str(order.quantity)
         else:
-            if order.is_base_amount:
-                request["quantity"] = to_amount_str(order.amount)
+            if order.is_base_quantity:
+                request["quantity"] = to_amount_str(order.quantity)
             else:
-                request["quoteOrderQty"] = to_amount_str(order.amount)
+                request["quoteOrderQty"] = to_amount_str(order.quantity)
         request = self._url_encode_and_sign(request)
         try:
             async with self.http_session.post(
@@ -125,10 +125,10 @@ class BinanceClient(AbstractWebClient):
                 return FullOrderDetails(
                     id=order_id,
                     action=OrderAction[order_data.get("side")],
-                    base_amount_filled=to_amount(order_data.get("executedQty")),
-                    counter_amount_filled=to_amount(order_data.get("cummulativeQuoteQty")),
+                    quantity_filled=to_amount(order_data.get("executedQty")),
+                    quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
                     limit_price=to_amount(order_data.get("price")),
-                    limit_volume=to_amount(order_data.get("origQty")),
+                    limit_quantity=to_amount(order_data.get("origQty")),
                     status=OrderStatus.PENDING if status == "NEW"
                     else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
                     else OrderStatus.CANCELLED if status == "CANCELED"
@@ -177,8 +177,8 @@ class BinanceClient(AbstractWebClient):
         # The Binance order book does not contain individual order granularity,
         # so create mock orders with the order ID = action@price.
         price = order_book_entry[0]
-        volume = to_amount(order_book_entry[1])
-        return LimitOrder(id=f"{action.name}@{price}", action=action, price=to_amount(price), volume=volume)
+        quantity = to_amount(order_book_entry[1])
+        return LimitOrder(id=f"{action.name}@{price}", action=action, price=to_amount(price), quantity=quantity)
 
     async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
         if isinstance(msg, dict):
@@ -195,12 +195,12 @@ class BinanceClient(AbstractWebClient):
             buyer_order_id = event.get("b")
             buyer_is_maker = event.get("m")
             seller_order_id = event.get("a")
-            base_amount = to_amount(event.get("q"))  # Quantity
+            quantity = to_amount(event.get("q"))
             self.market.raise_event(
                 TradeEvent(
                     timestamp=to_utc_timestamp(event.get("T")),
-                    base_amount=base_amount,
-                    counter_amount=base_amount * to_amount(event.get("p")),  # Convert price to quote quantity
+                    quantity=quantity,
+                    price=to_amount(event.get("p")),
                     maker_order_id=buyer_order_id if buyer_is_maker else seller_order_id,
                     taker_order_id=buyer_order_id if not buyer_is_maker else seller_order_id))
 
@@ -245,13 +245,12 @@ class BinanceClient(AbstractWebClient):
             self,
             action: OrderAction,
             order_book_entries: list[[str, str]],
-            timestamp: Timestamp
-    ):
+            timestamp: Timestamp):
         if isinstance(order_book_entries, list):
             for entry in order_book_entries:
                 if isinstance(entry, list):
                     order = self._get_order_from_stream(action, entry)
-                    if order.volume > 0:
+                    if order.quantity > 0:
                         self.market.raise_event(OrderBookItemAddedEvent(timestamp=timestamp, order=order))
                     else:
                         self.market.raise_event(OrderBookItemRemovedEvent(timestamp=timestamp, order_id=order.id))

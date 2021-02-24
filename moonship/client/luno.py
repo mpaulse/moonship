@@ -44,7 +44,6 @@ def to_order_action(s: str) -> OrderAction:
 
 
 class LunoClient(AbstractWebClient):
-    data_stream_seq_num = -1
 
     def __init__(self, market_name: str, app_config: Config):
         key_id = app_config.get("moonship.luno.key_id")
@@ -53,6 +52,7 @@ class LunoClient(AbstractWebClient):
         key_secret = app_config.get("moonship.luno.key_secret")
         if not isinstance(key_secret, str):
             raise StartUpException("Luno API key secret not configured")
+        self.data_stream_seq_num = -1
         super().__init__(
             market_name,
             app_config,
@@ -83,14 +83,14 @@ class LunoClient(AbstractWebClient):
             request["type"] = "BID" if order.action == OrderAction.BUY else "ASK"
             request["post_only"] = order.post_only
             request["price"] = to_amount_str(order.price, LUNO_MAX_DECIMALS)
-            request["volume"] = to_amount_str(order.volume, LUNO_MAX_DECIMALS)
+            request["volume"] = to_amount_str(order.quantity, LUNO_MAX_DECIMALS)
         else:
             order_type = "marketorder"
             request["type"] = order.action.name
-            if order.is_base_amount:
-                request["base_volume"] = to_amount_str(order.amount, LUNO_MAX_DECIMALS)
+            if order.is_base_quantity:
+                request["base_volume"] = to_amount_str(order.quantity, LUNO_MAX_DECIMALS)
             else:
-                request["counter_volume"] = to_amount_str(order.amount, LUNO_MAX_DECIMALS)
+                request["counter_volume"] = to_amount_str(order.quantity, LUNO_MAX_DECIMALS)
         try:
             async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
                 await self.handle_error_response(rsp)
@@ -105,17 +105,17 @@ class LunoClient(AbstractWebClient):
                 await self.handle_error_response(rsp)
                 order_data = await rsp.json()
                 state = order_data.get("state")
-                base_amount_filled = to_amount(order_data.get("base"))
+                quantity_filled = to_amount(order_data.get("base"))
                 return FullOrderDetails(
                     id=order_id,
                     action=to_order_action(order_data.get("type")),
-                    base_amount_filled=base_amount_filled,
-                    counter_amount_filled=to_amount(order_data.get("counter")),
+                    quantity_filled=quantity_filled,
+                    quote_quantity_filled=to_amount(order_data.get("counter")),
                     limit_price=to_amount(order_data.get("limit_price")),
-                    limit_volume=to_amount(order_data.get("limit_volume")),
+                    limit_quantity=to_amount(order_data.get("limit_volume")),
                     status=OrderStatus.CANCELLED if order_data.get("expiration_timestamp") != 0 and state == "COMPLETE"
                     else OrderStatus.FILLED if state == "COMPLETE"
-                    else OrderStatus.PARTIALLY_FILLED if base_amount_filled > 0
+                    else OrderStatus.PARTIALLY_FILLED if quantity_filled > 0
                     else OrderStatus.PENDING,
                     creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
         except Exception as e:
@@ -167,11 +167,12 @@ class LunoClient(AbstractWebClient):
         if isinstance(events, list):
             for data in events:
                 if isinstance(data, dict):
+                    quantity = to_amount(data.get("base"))
                     self.market.raise_event(
                         TradeEvent(
                             timestamp=timestamp,
-                            base_amount=to_amount(data.get("base")),
-                            counter_amount=to_amount(data.get("counter")),
+                            quantity=quantity,
+                            price=to_amount(data.get("counter")) / quantity,
                             maker_order_id=data.get("maker_order_id"),
                             taker_order_id=data.get("taker_order_id")))
 
@@ -205,4 +206,4 @@ class LunoClient(AbstractWebClient):
             id=order_data.get("id") if "id" in order_data else order_data.get("order_id"),
             action=action,
             price=to_amount(order_data.get("price")),
-            volume=to_amount(order_data.get("volume")))
+            quantity=to_amount(order_data.get("volume")))
