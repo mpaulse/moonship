@@ -137,6 +137,10 @@ class MarketClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def get_recent_trades(self, limit: int) -> list[Trade]:
+        pass
+
+    @abc.abstractmethod
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         pass
 
@@ -244,6 +248,7 @@ class Market:
         self._current_price = Amount(0)
         self._status = MarketStatus.CLOSED
         self._order_book = OrderBook()
+        self._recent_trades = sortedcontainers.SortedList(key=lambda t: t.timestamp)
         self._subscribers: list[MarketSubscriber] = []
         self._pending_order_ids: set[str] = set()
         self._logger = logging.getLogger(f"moonship.market.{name}")
@@ -285,6 +290,10 @@ class Market:
         return OrderBookEntriesView(self._order_book.asks)
 
     @property
+    def recent_trades(self) -> Iterator[Trade]:
+        return reversed(self._recent_trades)
+
+    @property
     def logger(self) -> logging.Logger:
         return self._logger
 
@@ -292,6 +301,11 @@ class Market:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         return await self._client.get_ticker()
+
+    async def get_recent_trades(self, limit=100) -> list[Trade]:
+        if self._status == MarketStatus.CLOSED:
+            raise MarketException(f"Market closed", self.name)
+        return await self._client.get_recent_trades(limit)
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         if self._status == MarketStatus.CLOSED:

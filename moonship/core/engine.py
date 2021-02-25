@@ -22,6 +22,7 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import asyncio
 import importlib
 import logging
 
@@ -29,6 +30,8 @@ from datetime import timezone
 from moonship.core import *
 from moonship.core.strategy import Strategy
 from typing import Optional
+
+RECENT_TRADE_LIST_LIMIT = 100
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,11 @@ class MarketManager(MarketSubscriber):
         self.market._status = MarketStatus.OPEN
         await self.market._client.connect()
         # TODO: get pending orders
+        await asyncio.gather(
+            self._init_current_price(),
+            self._init_recent_trade_list())
+
+    async def _init_current_price(self) -> None:
         ticker = await self.market.get_ticker()
         self.market._current_price = ticker.current_price
         self.market.raise_event(
@@ -52,10 +60,21 @@ class MarketManager(MarketSubscriber):
                 symbol=self.market.symbol,
                 ticker=ticker))
 
+    async def _init_recent_trade_list(self) -> None:
+        trades = await self.market.get_recent_trades(limit=RECENT_TRADE_LIST_LIMIT)
+        for trade in trades:
+            self._add_trade(trade)
+
+    def _add_trade(self, trade: Trade) -> None:
+        if len(self.market._recent_trades) >= RECENT_TRADE_LIST_LIMIT:
+            self.market._recent_trades.pop()
+        self.market._recent_trades.add(trade)
+
     async def close(self) -> None:
         await self.market._client.close()
         self.market._current_price = Amount(0)
         self.market._order_book.clear()
+        self.market._recent_trades.clear()
         self.market._status = MarketStatus.CLOSED
 
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
@@ -75,6 +94,7 @@ class MarketManager(MarketSubscriber):
     async def on_trade(self, event: TradeEvent) -> None:
         self.market._current_price = event.trade.price
         self.market._order_book.remove_order(event.maker_order_id)
+        self._add_trade(event.trade)
         self.market.raise_event(
             TickerEvent(
                 timestamp=event.timestamp,

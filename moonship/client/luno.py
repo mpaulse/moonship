@@ -74,6 +74,28 @@ class LunoClient(AbstractWebClient):
         except Exception as e:
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
+    async def get_recent_trades(self, limit) -> list[Trade]:
+        params = {
+            "pair": self.market.symbol,
+            "limit": limit
+        }
+        try:
+            async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
+                await self.handle_error_response(rsp)
+                trades: list[Trade] = []
+                trades_data = await rsp.json()["trades"]
+                if isinstance(trades_data, list):
+                    for data in trades_data:
+                        trades.append(
+                            Trade(
+                                timestamp=to_utc_timestamp(data.get("timestamp")),
+                                symbol=data.get("pair"),
+                                price=to_amount(data.get("price")),
+                                quantity=to_amount(data.get("base"))))
+                return trades
+        except Exception as e:
+            raise MarketException(f"Could not recent trades for {self.market.symbol}", self.market.name) from e
+
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
             "pair": self.market.symbol
