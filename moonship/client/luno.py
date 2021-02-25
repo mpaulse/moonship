@@ -83,7 +83,7 @@ class LunoClient(AbstractWebClient):
             async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
                 await self.handle_error_response(rsp)
                 trades: list[Trade] = []
-                trades_data = await rsp.json()["trades"]
+                trades_data = (await rsp.json())["trades"]
                 if isinstance(trades_data, list):
                     for data in trades_data:
                         trades.append(
