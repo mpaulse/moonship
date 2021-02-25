@@ -73,7 +73,7 @@ class MarketManager(MarketSubscriber):
         self.market._status = event.status
 
     async def on_trade(self, event: TradeEvent) -> None:
-        self.market._current_price = event.price
+        self.market._current_price = event.trade.price
         self.market._order_book.remove_order(event.maker_order_id)
         self.market.raise_event(
             TickerEvent(

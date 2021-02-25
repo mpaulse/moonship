@@ -79,8 +79,7 @@ class OrderBookItemRemovedEvent(MarketEvent):
 
 @dataclass
 class TradeEvent(MarketEvent):
-    quantity: Amount = Amount(0)
-    price: Amount = Amount(0)
+    trade: Trade = None
     maker_order_id: str = None
     taker_order_id: str = None
 

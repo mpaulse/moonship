@@ -108,6 +108,7 @@ class LunoClient(AbstractWebClient):
                 quantity_filled = to_amount(order_data.get("base"))
                 return FullOrderDetails(
                     id=order_id,
+                    symbol=order_data.get("pair"),
                     action=to_order_action(order_data.get("type")),
                     quantity_filled=quantity_filled,
                     quote_quantity_filled=to_amount(order_data.get("counter")),
@@ -171,8 +172,11 @@ class LunoClient(AbstractWebClient):
                     self.market.raise_event(
                         TradeEvent(
                             timestamp=timestamp,
-                            quantity=quantity,
-                            price=to_amount(data.get("counter")) / quantity,
+                            trade=Trade(
+                                timestamp=timestamp,
+                                symbol=self.market.symbol,
+                                quantity=quantity,
+                                price=to_amount(data.get("counter")) / quantity),
                             maker_order_id=data.get("maker_order_id"),
                             taker_order_id=data.get("taker_order_id")))
 

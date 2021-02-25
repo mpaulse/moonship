@@ -25,6 +25,7 @@
 import logging
 
 from moonship.core import *
+from typing import Union
 
 __all__ = [
     "TradingAlgo"
@@ -44,6 +45,20 @@ class TradingAlgo(MarketSubscriber):
 
     async def on_stopped(self) -> None:
         pass
+
+    async def on_order_book_update(
+            self,
+            event: Union[OrderBookInitEvent, OrderBookItemAddedEvent, OrderBookItemRemovedEvent]) -> None:
+        pass
+
+    async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
+        await self.on_order_book_update(event)
+
+    async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
+        await self.on_order_book_update(event)
+
+    async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
+        await self.on_order_book_update(event)
 
 
 class Strategy:

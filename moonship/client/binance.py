@@ -124,6 +124,7 @@ class BinanceClient(AbstractWebClient):
                 status = order_data.get("status")
                 return FullOrderDetails(
                     id=order_id,
+                    symbol=order_data.get("symbol"),
                     action=OrderAction[order_data.get("side")],
                     quantity_filled=to_amount(order_data.get("executedQty")),
                     quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
@@ -198,9 +199,12 @@ class BinanceClient(AbstractWebClient):
             quantity = to_amount(event.get("q"))
             self.market.raise_event(
                 TradeEvent(
-                    timestamp=to_utc_timestamp(event.get("T")),
-                    quantity=quantity,
-                    price=to_amount(event.get("p")),
+                    timestamp=to_utc_timestamp(event.get("E")),
+                    trade=Trade(
+                        timestamp=to_utc_timestamp(event.get("T")),
+                        symbol=event.get("s"),
+                        quantity=quantity,
+                        price=to_amount(event.get("p"))),
                     maker_order_id=buyer_order_id if buyer_is_maker else seller_order_id,
                     taker_order_id=buyer_order_id if not buyer_is_maker else seller_order_id))
 

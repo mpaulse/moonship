@@ -43,6 +43,7 @@ __all__ = [
     "to_amount",
     "to_amount_str",
     "to_utc_timestamp",
+    "Trade",
     "utc_timestamp_now_msec"
 ]
 
@@ -66,6 +67,14 @@ class Ticker:
     @property
     def spread(self) -> Amount:
         return self.ask_price - self.bid_price
+
+
+@dataclass
+class Trade:
+    timestamp: Timestamp
+    symbol: str
+    price: Amount
+    quantity: Amount
 
 
 class OrderAction(Enum):
@@ -104,6 +113,7 @@ class LimitOrder(AbstractOrder):
 
 @dataclass
 class FullOrderDetails(AbstractOrder):
+    symbol: str = None
     quantity_filled: Amount = Amount(0)
     quote_quantity_filled: Amount = Amount(0)
     limit_price: Amount = Amount(0)

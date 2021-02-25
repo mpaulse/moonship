@@ -25,17 +25,14 @@
 import logging
 
 from moonship.core import *
+from typing import Union
 
 
 class LogMarketInfo(TradingAlgo):
 
-    async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
-        self.log_market_info(event)
-
-    async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
-        self.log_market_info(event)
-
-    async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
+    async def on_order_book_update(
+            self,
+            event: Union[OrderBookInitEvent, OrderBookItemAddedEvent, OrderBookItemRemovedEvent]) -> None:
         self.log_market_info(event)
 
     async def on_ticker(self, event: TickerEvent) -> None:
@@ -54,8 +51,8 @@ class LogMarketInfo(TradingAlgo):
                 a = asks[i]
                 s += f"{b.quantity:8} {b.price:8} | {a.price:8} {a.quantity:8}\n"
             s += "\n"
-            s += f"Price: {market.current_price.quantize(market.bid_price)}\n"
-            s += f"Bid: {market.bid_price}\n"
-            s += f"Ask: {market.ask_price}\n"
-            s += f"Spread: {market.spread}\n"
+            s += f"Price: {to_amount_str(market.current_price)}\n"
+            s += f"Bid: {to_amount_str(market.bid_price)}\n"
+            s += f"Ask: {to_amount_str(market.ask_price)}\n"
+            s += f"Spread: {to_amount_str(market.spread)}\n"
             self.logger.debug(s)
