@@ -26,7 +26,7 @@ import abc
 
 from dataclasses import dataclass
 from datetime import datetime as Timestamp, timezone
-from decimal import Decimal as Amount
+from decimal import Decimal as Amount, ROUND_FLOOR
 from enum import Enum
 
 __all__ = [
@@ -38,6 +38,7 @@ __all__ = [
     "MAX_DECIMALS",
     "OrderAction",
     "OrderStatus",
+    "round_amount",
     "Ticker",
     "Timestamp",
     "to_amount",
@@ -128,13 +129,19 @@ def to_amount(s: str) -> Amount:
 
 def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
     if max_decimals is not None:
-        a = a.quantize(Amount("0." + "".join(["0" for _ in range(0, max_decimals)])))
+        a = round_amount(a, max_decimals)
     s = str(a)
     if "." in s:
         s = s.rstrip("0")
         if s[-1] == ".":
             s = s[:-1]
     return s
+
+
+def round_amount(a: Amount, num_decimals) -> Amount:
+    return a.quantize(
+        Amount("0." + "".join(["0" for _ in range(0, num_decimals)])),
+        rounding=ROUND_FLOOR)
 
 
 def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:
