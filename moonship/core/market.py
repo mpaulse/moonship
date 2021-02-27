@@ -342,8 +342,14 @@ class Market:
     async def _update_order_status(self, order_id: str) -> None:
         if order_id in self._pending_order_ids:
             order_details = await self.get_order(order_id)
-            if order_details.status != OrderStatus.PENDING:
-                self._pending_order_ids.remove(order_id)
+            if order_details.status == OrderStatus.FILLED \
+                    or order_details.status == OrderStatus.CANCELLED \
+                    or order_details.status == OrderStatus.EXPIRED \
+                    or order_details.status == OrderStatus.REJECTED:
+                try:
+                    self._pending_order_ids.remove(order_id)
+                except KeyError:
+                    pass
             self.raise_event(OrderStatusUpdateEvent(order=order_details))
 
     def subscribe(self, subscriber) -> None:
