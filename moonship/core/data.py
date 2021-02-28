@@ -23,10 +23,11 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import abc
+import decimal
 
 from dataclasses import dataclass
 from datetime import datetime as Timestamp, timezone
-from decimal import Decimal as Amount, ROUND_FLOOR
+from decimal import Decimal as Amount
 from enum import Enum
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "OrderAction",
     "OrderStatus",
     "round_amount",
+    "Rounding",
     "Ticker",
     "Timestamp",
     "to_amount",
@@ -123,13 +125,24 @@ class FullOrderDetails(AbstractOrder):
     creation_timestamp: Timestamp = None
 
 
+class Rounding(Enum):
+    ROUND_05UP = decimal.ROUND_05UP
+    ROUND_CEILING = decimal.ROUND_CEILING
+    ROUND_DOWN = decimal.ROUND_DOWN
+    ROUND_FLOOR = decimal.ROUND_FLOOR
+    ROUND_HALF_DOWN = decimal.ROUND_HALF_DOWN
+    ROUND_HALF_UP = decimal.ROUND_HALF_UP
+    ROUND_HALF_EVEN = decimal.ROUND_HALF_EVEN
+    ROUND_UP = decimal.ROUND_UP
+
+
 def to_amount(s: str) -> Amount:
     return Amount(s) if s is not None else Amount(0)
 
 
-def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
+def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS, rounding=Rounding.ROUND_FLOOR) -> str:
     if max_decimals is not None:
-        a = round_amount(a, max_decimals)
+        a = round_amount(a, max_decimals, rounding)
     s = str(a)
     if "." in s:
         s = s.rstrip("0")
@@ -138,10 +151,10 @@ def to_amount_str(a: Amount, max_decimals=MAX_DECIMALS) -> str:
     return s
 
 
-def round_amount(a: Amount, num_decimals) -> Amount:
+def round_amount(a: Amount, num_decimals, rounding=Rounding.ROUND_FLOOR) -> Amount:
     return a.quantize(
         Amount("0." + "".join(["0" for _ in range(0, num_decimals)])),
-        rounding=ROUND_FLOOR)
+        rounding=rounding.value)
 
 
 def to_utc_timestamp(utc_ts_msec: int) -> Timestamp:
