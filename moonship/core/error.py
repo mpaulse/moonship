@@ -28,6 +28,7 @@ from dataclasses import dataclass
 
 __all__ = [
     "MarketException",
+    "ShutdownException",
     "StartUpException",
 ]
 
@@ -40,4 +41,8 @@ class MarketException(Exception):
 
 
 class StartUpException(Exception):
+    pass
+
+
+class ShutdownException(Exception):
     pass

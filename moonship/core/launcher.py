@@ -26,9 +26,10 @@ import asyncio
 import logging
 import logging.config
 import os
+import signal
 import sys
 
-from moonship.core import __version__, Config, StartUpException
+from moonship.core import __version__, Config, StartUpException, ShutdownException
 from moonship.core.engine import TradeEngine
 
 __all__ = [
@@ -85,6 +86,10 @@ def handle_error(context: dict):
     logger.exception(error, exc_info=exception)
 
 
+def handle_signal(signum, frame):
+    raise ShutdownException()
+
+
 def launch():
     config = Config.load_from_file("config.yml" if len(sys.argv) < 2 else sys.argv[1])
     configure_logging(config)
@@ -103,6 +108,7 @@ def launch():
     engine = None
     event_loop = asyncio.get_event_loop()
     event_loop.set_exception_handler(lambda loop, context: handle_error(context))
+    signal.signal(signal.SIGTERM, handle_signal)
     try:
         engine = TradeEngine(config)
         event_loop.create_task(engine.start())
@@ -111,8 +117,9 @@ def launch():
         logger.exception("Start-up failed!")
     except KeyboardInterrupt:
         pass
+    except ShutdownException:
+        pass
     finally:
-        # TODO: Add signal handlers to shutdown on SIGHUP, SIGTERM and SIGINT
         logger.info("Shutting down...")
         if isinstance(engine, TradeEngine):
             event_loop.run_until_complete(engine.stop())
