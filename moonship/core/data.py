@@ -34,6 +34,7 @@ __all__ = [
     "Amount",
     "FullOrderDetails",
     "LimitOrder",
+    "MarketInfo",
     "MarketOrder",
     "MarketStatus",
     "MAX_DECIMALS",
@@ -57,6 +58,17 @@ class MarketStatus(Enum):
     CLOSED = 0
     OPEN = 1
     OPEN_POST_ONLY = 2
+
+
+@dataclass
+class MarketInfo:
+    symbol: str
+    base_asset: str
+    base_asset_precision: int
+    base_asset_min_quantity: Amount
+    quote_asset: str
+    quote_asset_precision: int
+    status: MarketStatus
 
 
 @dataclass

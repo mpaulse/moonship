@@ -55,4 +55,10 @@ class LogMarketInfo(TradingAlgo):
             s += f"Bid: {to_amount_str(market.bid_price)}\n"
             s += f"Ask: {to_amount_str(market.ask_price)}\n"
             s += f"Spread: {to_amount_str(market.spread)}\n"
+            s += f"Base asset: {market.base_asset}\n"
+            s += f"Base asset precision: {market.base_asset_precision}\n"
+            s += f"Base asset minimum quantity: {to_amount_str(market.base_asset_min_quantity)}\n"
+            s += f"Quote asset: {market.quote_asset}\n"
+            s += f"Quote asset precision: {market.quote_asset_precision}\n"
+            s += f"Status: {market.status.name}\n"
             self.logger.debug(s)

@@ -48,7 +48,8 @@ class MarketManager(MarketSubscriber):
         # TODO: get pending orders
         await asyncio.gather(
             self._init_current_price(),
-            self._init_recent_trade_list())
+            self._init_recent_trade_list(),
+            self._init_market_info())
 
     async def _init_current_price(self) -> None:
         ticker = await self.market.get_ticker()
@@ -64,6 +65,15 @@ class MarketManager(MarketSubscriber):
         trades = await self.market.get_recent_trades(limit=RECENT_TRADE_LIST_LIMIT)
         for trade in trades:
             self._add_trade(trade)
+
+    async def _init_market_info(self) -> None:
+        info = await self.market._client.get_market_info()
+        self.market._status = info.status
+        self.market._base_asset = info.base_asset
+        self.market._base_asset_precision = info.base_asset_precision
+        self.market._base_asset_min_quantity = info.base_asset_min_quantity
+        self.market._quote_asset = info.quote_asset
+        self.market._quote_asset_precision = info.quote_asset_precision
 
     def _add_trade(self, trade: Trade) -> None:
         if len(self.market._recent_trades) >= RECENT_TRADE_LIST_LIMIT:

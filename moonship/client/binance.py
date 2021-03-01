@@ -38,6 +38,8 @@ STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
 
 
 class BinanceClient(AbstractWebClient):
+    market_info: dict[str, MarketInfo] = {}
+    market_info_lock = asyncio.Lock()
 
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.binance.api_key")
@@ -55,6 +57,35 @@ class BinanceClient(AbstractWebClient):
             WebClientSessionParameters(
                 stream_url=f"{STREAM_BASE_URL}?streams={symbol}@trade/{symbol}@depth",
                 headers={"X-MBX-APIKEY": api_key}))
+
+    async def get_market_info(self, use_cached=True) -> MarketInfo:
+        async with self.market_info_lock:
+            if not use_cached or self.market.symbol not in self.market_info:
+                try:
+                    async with self.http_session.get(f"{API_BASE_URL}/exchangeInfo") as rsp:
+                        await self.handle_error_response(rsp)
+                        markets = (await rsp.json()).get("symbols")
+                        for market_data in markets:
+                            min_quantity = Amount(1)
+                            filters = market_data.get("filters")
+                            for filter in filters:
+                                if filter.get("filterType") == "LOT_SIZE":
+                                    min_quantity = Amount(filter.get("minQty"))
+                                    break
+                            info = MarketInfo(
+                                symbol=market_data.get("symbol"),
+                                base_asset=market_data.get("baseAsset"),
+                                base_asset_precision=market_data.get("baseAssetPrecision"),
+                                base_asset_min_quantity=min_quantity,
+                                quote_asset=market_data.get("quoteAsset"),
+                                quote_asset_precision=market_data.get("quoteAssetPrecision"),
+                                status=MarketStatus.OPEN if market_data.get("status") == "TRADING"
+                                else MarketStatus.CLOSED)
+                            self.market_info[info.symbol] = info
+                except Exception as e:
+                    raise MarketException(
+                        f"Could not retrieve market info for {self.market.symbol}", self.market.name) from e
+        return self.market_info[self.market.symbol]
 
     async def get_ticker(self) -> Ticker:
         try:

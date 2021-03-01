@@ -133,6 +133,10 @@ class MarketClient(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def get_market_info(self, use_cached=True) -> MarketInfo:
+        pass
+
+    @abc.abstractmethod
     async def get_ticker(self) -> Ticker:
         pass
 
@@ -245,6 +249,11 @@ class Market:
         self._symbol = symbol
         self._client = client
         self._client.market = self
+        self._base_asset = symbol[0:3] if len(symbol) == 6 else symbol
+        self._base_asset_precision = 0
+        self._base_asset_min_quantity = Amount(1)
+        self._quote_asset = symbol[3:] if len(symbol) == 6 else None
+        self._quote_asset_precision = 0
         self._current_price = Amount(0)
         self._status = MarketStatus.CLOSED
         self._order_book = OrderBook()
@@ -260,6 +269,26 @@ class Market:
     @property
     def symbol(self) -> str:
         return self._symbol
+
+    @property
+    def base_asset(self) -> str:
+        return self._base_asset
+
+    @property
+    def base_asset_precision(self) -> int:
+        return self._base_asset_precision
+
+    @property
+    def base_asset_min_quantity(self) -> Amount:
+        return self._base_asset_min_quantity
+
+    @property
+    def quote_asset(self) -> str:
+        return self._quote_asset
+
+    @property
+    def quote_asset_precision(self) -> int:
+        return self._quote_asset_precision
 
     @property
     def status(self) -> MarketStatus:

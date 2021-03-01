@@ -23,27 +23,21 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import aiohttp
+import asyncio
 
 from moonship.core import *
 from moonship.client.web import *
 from typing import Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
+EXCHANGE_API_BASE_URL = "https://api.luno.com/api/exchange/1"
 STREAM_BASE_URL = "wss://ws.luno.com/api/1/stream"
 LUNO_MAX_DECIMALS = MAX_DECIMALS
 
 
-def to_market_status(s: str) -> MarketStatus:
-    return MarketStatus.OPEN if s == "ACTIVE" \
-        else MarketStatus.OPEN_POST_ONLY if s == "POSTONLY" \
-        else MarketStatus.CLOSED
-
-
-def to_order_action(s: str) -> OrderAction:
-    return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
-
-
 class LunoClient(AbstractWebClient):
+    market_info: dict[str, MarketInfo] = {}
+    market_info_lock = asyncio.Lock()
 
     def __init__(self, market_name: str, app_config: Config):
         key_id = app_config.get("moonship.luno.key_id")
@@ -59,6 +53,28 @@ class LunoClient(AbstractWebClient):
             WebClientSessionParameters(
                 stream_url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}",
                 auth=aiohttp.BasicAuth(key_id, key_secret)))
+
+    async def get_market_info(self, use_cached=True) -> MarketInfo:
+        async with self.market_info_lock:
+            if not use_cached or self.market.symbol not in self.market_info:
+                try:
+                    async with self.http_session.get(f"{EXCHANGE_API_BASE_URL}/markets") as rsp:
+                        await self.handle_error_response(rsp)
+                        markets = (await rsp.json()).get("markets")
+                        for market_data in markets:
+                            info = MarketInfo(
+                                symbol=market_data.get("market_id"),
+                                base_asset=market_data.get("base_currency"),
+                                base_asset_precision=market_data.get("volume_scale"),
+                                base_asset_min_quantity=Amount(market_data.get("min_volume")),
+                                quote_asset=market_data.get("counter_currency"),
+                                quote_asset_precision=market_data.get("price_scale"),
+                                status=self._to_market_status(market_data.get("trading_status")))
+                            self.market_info[info.symbol] = info
+                except Exception as e:
+                    raise MarketException(
+                        f"Could not retrieve market info for {self.market.symbol}", self.market.name) from e
+        return self.market_info[self.market.symbol]
 
     async def get_ticker(self) -> Ticker:
         try:
@@ -131,7 +147,7 @@ class LunoClient(AbstractWebClient):
                 return FullOrderDetails(
                     id=order_id,
                     symbol=order_data.get("pair"),
-                    action=to_order_action(order_data.get("type")),
+                    action=self._to_order_action(order_data.get("type")),
                     quantity_filled=quantity_filled,
                     quote_quantity_filled=to_amount(order_data.get("counter")),
                     limit_price=to_amount(order_data.get("limit_price")),
@@ -207,7 +223,7 @@ class LunoClient(AbstractWebClient):
             self.market.raise_event(
                 OrderBookItemAddedEvent(
                     timestamp=timestamp,
-                    order=self._get_order_from_stream(to_order_action(event.get("type")), event)))
+                    order=self._get_order_from_stream(self._to_order_action(event.get("type")), event)))
 
     def _on_order_book_entry_removed_stream_event(self, event: dict, timestamp: Timestamp) -> None:
         if isinstance(event, dict):
@@ -221,7 +237,7 @@ class LunoClient(AbstractWebClient):
             self.market.raise_event(
                 MarketStatusEvent(
                     timestamp=timestamp,
-                    status=to_market_status(event.get("status"))))
+                    status=self._to_market_status(event.get("status"))))
 
     def _get_orders_from_stream(self, action: OrderAction, order_data: list[dict], orders: list[LimitOrder]):
         for data in order_data:
@@ -233,3 +249,11 @@ class LunoClient(AbstractWebClient):
             action=action,
             price=to_amount(order_data.get("price")),
             quantity=to_amount(order_data.get("volume")))
+
+    def _to_market_status(self, s: str) -> MarketStatus:
+        return MarketStatus.OPEN if s == "ACTIVE" \
+            else MarketStatus.OPEN_POST_ONLY if s == "POSTONLY" \
+            else MarketStatus.CLOSED
+
+    def _to_order_action(self, s: str) -> OrderAction:
+        return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
