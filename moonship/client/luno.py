@@ -23,6 +23,7 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import aiohttp
+import aiolimiter
 import asyncio
 
 from moonship.core import *
@@ -38,6 +39,8 @@ LUNO_MAX_DECIMALS = MAX_DECIMALS
 class LunoClient(AbstractWebClient):
     market_info: dict[str, MarketInfo] = {}
     market_info_lock = asyncio.Lock()
+    market_data_limiter = aiolimiter.AsyncLimiter(5, 1)
+    limiter = aiolimiter.AsyncLimiter(25, 1)
 
     def __init__(self, market_name: str, app_config: Config):
         key_id = app_config.get("moonship.luno.key_id")
@@ -58,19 +61,20 @@ class LunoClient(AbstractWebClient):
         async with self.market_info_lock:
             if not use_cached or self.market.symbol not in self.market_info:
                 try:
-                    async with self.http_session.get(f"{EXCHANGE_API_BASE_URL}/markets") as rsp:
-                        await self.handle_error_response(rsp)
-                        markets = (await rsp.json()).get("markets")
-                        for market_data in markets:
-                            info = MarketInfo(
-                                symbol=market_data.get("market_id"),
-                                base_asset=market_data.get("base_currency"),
-                                base_asset_precision=market_data.get("volume_scale"),
-                                base_asset_min_quantity=Amount(market_data.get("min_volume")),
-                                quote_asset=market_data.get("counter_currency"),
-                                quote_asset_precision=market_data.get("price_scale"),
-                                status=self._to_market_status(market_data.get("trading_status")))
-                            self.market_info[info.symbol] = info
+                    async with self.market_data_limiter:
+                        async with self.http_session.get(f"{EXCHANGE_API_BASE_URL}/markets") as rsp:
+                            await self.handle_error_response(rsp)
+                            markets = (await rsp.json()).get("markets")
+                            for market_data in markets:
+                                info = MarketInfo(
+                                    symbol=market_data.get("market_id"),
+                                    base_asset=market_data.get("base_currency"),
+                                    base_asset_precision=market_data.get("volume_scale"),
+                                    base_asset_min_quantity=Amount(market_data.get("min_volume")),
+                                    quote_asset=market_data.get("counter_currency"),
+                                    quote_asset_precision=market_data.get("price_scale"),
+                                    status=self._to_market_status(market_data.get("trading_status")))
+                                self.market_info[info.symbol] = info
                 except Exception as e:
                     raise MarketException(
                         f"Could not retrieve market info for {self.market.symbol}", self.market.name) from e
@@ -78,15 +82,16 @@ class LunoClient(AbstractWebClient):
 
     async def get_ticker(self) -> Ticker:
         try:
-            async with self.http_session.get(f"{API_BASE_URL}/ticker", params={"pair": self.market.symbol}) as rsp:
-                await self.handle_error_response(rsp)
-                ticker = await rsp.json()
-                return Ticker(
-                    timestamp=to_utc_timestamp(ticker.get("timestamp")),
-                    symbol=ticker.get("pair"),
-                    bid_price=to_amount(ticker.get("bid")),
-                    ask_price=to_amount(ticker.get("ask")),
-                    current_price=to_amount(ticker.get("last_trade")))
+            async with self.market_data_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/ticker", params={"pair": self.market.symbol}) as rsp:
+                    await self.handle_error_response(rsp)
+                    ticker = await rsp.json()
+                    return Ticker(
+                        timestamp=to_utc_timestamp(ticker.get("timestamp")),
+                        symbol=ticker.get("pair"),
+                        bid_price=to_amount(ticker.get("bid")),
+                        ask_price=to_amount(ticker.get("ask")),
+                        current_price=to_amount(ticker.get("last_trade")))
         except Exception as e:
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
@@ -96,21 +101,22 @@ class LunoClient(AbstractWebClient):
             "limit": limit
         }
         try:
-            async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
-                await self.handle_error_response(rsp)
-                trades: list[Trade] = []
-                trades_data = (await rsp.json())["trades"]
-                if isinstance(trades_data, list):
-                    for data in trades_data:
-                        trades.append(
-                            Trade(
-                                timestamp=to_utc_timestamp(data.get("timestamp")),
-                                symbol=data.get("pair"),
-                                price=to_amount(data.get("price")),
-                                quantity=to_amount(data.get("base"))))
-                return trades
+            async with self.market_data_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    trades: list[Trade] = []
+                    trades_data = (await rsp.json())["trades"]
+                    if isinstance(trades_data, list):
+                        for data in trades_data:
+                            trades.append(
+                                Trade(
+                                    timestamp=to_utc_timestamp(data.get("timestamp")),
+                                    symbol=data.get("pair"),
+                                    price=to_amount(data.get("price")),
+                                    quantity=to_amount(data.get("base"))))
+                    return trades
         except Exception as e:
-            raise MarketException(f"Could not recent trades for {self.market.symbol}", self.market.name) from e
+            raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
@@ -130,33 +136,35 @@ class LunoClient(AbstractWebClient):
             else:
                 request["counter_volume"] = to_amount_str(order.quantity, LUNO_MAX_DECIMALS)
         try:
-            async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
-                await self.handle_error_response(rsp)
-                order.id = (await rsp.json()).get("order_id")
-                return order.id
+            async with self.limiter:
+                async with self.http_session.post(f"{API_BASE_URL}/{order_type}", data=request) as rsp:
+                    await self.handle_error_response(rsp)
+                    order.id = (await rsp.json()).get("order_id")
+                    return order.id
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name) from e
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
-            async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
-                await self.handle_error_response(rsp)
-                order_data = await rsp.json()
-                state = order_data.get("state")
-                quantity_filled = to_amount(order_data.get("base"))
-                return FullOrderDetails(
-                    id=order_id,
-                    symbol=order_data.get("pair"),
-                    action=self._to_order_action(order_data.get("type")),
-                    quantity_filled=quantity_filled,
-                    quote_quantity_filled=to_amount(order_data.get("counter")),
-                    limit_price=to_amount(order_data.get("limit_price")),
-                    limit_quantity=to_amount(order_data.get("limit_volume")),
-                    status=OrderStatus.CANCELLED if order_data.get("expiration_timestamp") != 0 and state == "COMPLETE"
-                    else OrderStatus.FILLED if state == "COMPLETE"
-                    else OrderStatus.PARTIALLY_FILLED if quantity_filled > 0
-                    else OrderStatus.PENDING,
-                    creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
+            async with self.limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
+                    await self.handle_error_response(rsp)
+                    order_data = await rsp.json()
+                    state = order_data.get("state")
+                    quantity_filled = to_amount(order_data.get("base"))
+                    return FullOrderDetails(
+                        id=order_id,
+                        symbol=order_data.get("pair"),
+                        action=self._to_order_action(order_data.get("type")),
+                        quantity_filled=quantity_filled,
+                        quote_quantity_filled=to_amount(order_data.get("counter")),
+                        limit_price=to_amount(order_data.get("limit_price")),
+                        limit_quantity=to_amount(order_data.get("limit_volume")),
+                        status=OrderStatus.CANCELLED if order_data.get("expiration_timestamp") != 0 and state == "COMPLETE"
+                        else OrderStatus.FILLED if state == "COMPLETE"
+                        else OrderStatus.PARTIALLY_FILLED if quantity_filled > 0
+                        else OrderStatus.PENDING,
+                        creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
 
@@ -165,11 +173,12 @@ class LunoClient(AbstractWebClient):
             "order_id": order_id
         }
         try:
-            async with self.http_session.post(f"{API_BASE_URL}/stoporder", data=request) as rsp:
-                if rsp.status == 404:
-                    return False
-                await self.handle_error_response(rsp)
-                return bool((await rsp.json()).get("success"))
+            async with self.limiter:
+                async with self.http_session.post(f"{API_BASE_URL}/stoporder", data=request) as rsp:
+                    if rsp.status == 404:
+                        return False
+                    await self.handle_error_response(rsp)
+                    return bool((await rsp.json()).get("success"))
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
 

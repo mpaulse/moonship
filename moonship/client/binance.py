@@ -23,6 +23,7 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import aiohttp
+import aiolimiter
 import asyncio
 import hmac
 import hashlib
@@ -40,6 +41,8 @@ STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
 class BinanceClient(AbstractWebClient):
     market_info: dict[str, MarketInfo] = {}
     market_info_lock = asyncio.Lock()
+    request_weight_limiter = aiolimiter.AsyncLimiter(1200, 60)
+    order_limiter = aiolimiter.AsyncLimiter(100, 10)
 
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.binance.api_key")
@@ -62,26 +65,27 @@ class BinanceClient(AbstractWebClient):
         async with self.market_info_lock:
             if not use_cached or self.market.symbol not in self.market_info:
                 try:
-                    async with self.http_session.get(f"{API_BASE_URL}/exchangeInfo") as rsp:
-                        await self.handle_error_response(rsp)
-                        markets = (await rsp.json()).get("symbols")
-                        for market_data in markets:
-                            min_quantity = Amount(1)
-                            filters = market_data.get("filters")
-                            for filter in filters:
-                                if filter.get("filterType") == "LOT_SIZE":
-                                    min_quantity = Amount(filter.get("minQty"))
-                                    break
-                            info = MarketInfo(
-                                symbol=market_data.get("symbol"),
-                                base_asset=market_data.get("baseAsset"),
-                                base_asset_precision=market_data.get("baseAssetPrecision"),
-                                base_asset_min_quantity=min_quantity,
-                                quote_asset=market_data.get("quoteAsset"),
-                                quote_asset_precision=market_data.get("quoteAssetPrecision"),
-                                status=MarketStatus.OPEN if market_data.get("status") == "TRADING"
-                                else MarketStatus.CLOSED)
-                            self.market_info[info.symbol] = info
+                    async with self.request_weight_limiter:
+                        async with self.http_session.get(f"{API_BASE_URL}/exchangeInfo") as rsp:
+                            await self.handle_error_response(rsp)
+                            markets = (await rsp.json()).get("symbols")
+                            for market_data in markets:
+                                min_quantity = Amount(1)
+                                filters = market_data.get("filters")
+                                for filter in filters:
+                                    if filter.get("filterType") == "LOT_SIZE":
+                                        min_quantity = Amount(filter.get("minQty"))
+                                        break
+                                info = MarketInfo(
+                                    symbol=market_data.get("symbol"),
+                                    base_asset=market_data.get("baseAsset"),
+                                    base_asset_precision=market_data.get("baseAssetPrecision"),
+                                    base_asset_min_quantity=min_quantity,
+                                    quote_asset=market_data.get("quoteAsset"),
+                                    quote_asset_precision=market_data.get("quoteAssetPrecision"),
+                                    status=MarketStatus.OPEN if market_data.get("status") == "TRADING"
+                                    else MarketStatus.CLOSED)
+                                self.market_info[info.symbol] = info
                 except Exception as e:
                     raise MarketException(
                         f"Could not retrieve market info for {self.market.symbol}", self.market.name) from e
@@ -101,18 +105,20 @@ class BinanceClient(AbstractWebClient):
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
     async def _get_price_ticker(self) -> dict:
-        async with self.http_session.get(
-                f"{API_BASE_URL}/ticker/price",
-                params={"symbol": self.market.symbol}) as rsp:
-            await self.handle_error_response(rsp)
-            return await rsp.json()
+        async with self.request_weight_limiter:
+            async with self.http_session.get(
+                    f"{API_BASE_URL}/ticker/price",
+                    params={"symbol": self.market.symbol}) as rsp:
+                await self.handle_error_response(rsp)
+                return await rsp.json()
 
     async def _get_order_book_ticker(self) -> dict:
-        async with self.http_session.get(
-                f"{API_BASE_URL}/ticker/bookTicker",
-                params={"symbol": self.market.symbol}) as rsp:
-            await self.handle_error_response(rsp)
-            return await rsp.json()
+        async with self.request_weight_limiter:
+            async with self.http_session.get(
+                    f"{API_BASE_URL}/ticker/bookTicker",
+                    params={"symbol": self.market.symbol}) as rsp:
+                await self.handle_error_response(rsp)
+                return await rsp.json()
 
     async def get_recent_trades(self, limit) -> list[Trade]:
         params = {
@@ -120,21 +126,22 @@ class BinanceClient(AbstractWebClient):
             "limit": limit
         }
         try:
-            async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
-                await self.handle_error_response(rsp)
-                trades: list[Trade] = []
-                trades_data = await rsp.json()
-                if isinstance(trades_data, list):
-                    for data in trades_data:
-                        trades.append(
-                            Trade(
-                                timestamp=to_utc_timestamp(data.get("time")),
-                                symbol=self.market.symbol,
-                                price=to_amount(data.get("price")),
-                                quantity=to_amount(data.get("qty"))))
-                return trades
+            async with self.request_weight_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    trades: list[Trade] = []
+                    trades_data = await rsp.json()
+                    if isinstance(trades_data, list):
+                        for data in trades_data:
+                            trades.append(
+                                Trade(
+                                    timestamp=to_utc_timestamp(data.get("time")),
+                                    symbol=self.market.symbol,
+                                    price=to_amount(data.get("price")),
+                                    quantity=to_amount(data.get("qty"))))
+                    return trades
         except Exception as e:
-            raise MarketException(f"Could not recent trades for {self.market.symbol}", self.market.name) from e
+            raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
@@ -155,13 +162,15 @@ class BinanceClient(AbstractWebClient):
                 request["quoteOrderQty"] = to_amount_str(order.quantity)
         request = self._url_encode_and_sign(request)
         try:
-            async with self.http_session.post(
-                    f"{API_BASE_URL}/order",
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    data=request) as rsp:
-                await self.handle_error_response(rsp)
-                order.id = (await rsp.json()).get("orderId")
-                return order.id
+            async with self.request_weight_limiter:
+                async with self.order_limiter:
+                    async with self.http_session.post(
+                            f"{API_BASE_URL}/order",
+                            headers={"Content-Type": "application/x-www-form-urlencoded"},
+                            data=request) as rsp:
+                        await self.handle_error_response(rsp)
+                        order.id = (await rsp.json()).get("orderId")
+                        return order.id
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name) from e
 
@@ -171,23 +180,24 @@ class BinanceClient(AbstractWebClient):
             "orderId": order_id
         })
         try:
-            async with self.http_session.get(f"{API_BASE_URL}/order", params=params) as rsp:
-                await self.handle_error_response(rsp)
-                order_data = await rsp.json()
-                status = order_data.get("status")
-                return FullOrderDetails(
-                    id=order_id,
-                    symbol=order_data.get("symbol"),
-                    action=OrderAction[order_data.get("side")],
-                    quantity_filled=to_amount(order_data.get("executedQty")),
-                    quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
-                    limit_price=to_amount(order_data.get("price")),
-                    limit_quantity=to_amount(order_data.get("origQty")),
-                    status=OrderStatus.PENDING if status == "NEW"
-                    else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
-                    else OrderStatus.CANCELLED if status == "CANCELED"
-                    else OrderStatus[status],
-                    creation_timestamp=to_utc_timestamp(order_data.get("time")))
+            async with self.request_weight_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/order", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    order_data = await rsp.json()
+                    status = order_data.get("status")
+                    return FullOrderDetails(
+                        id=order_id,
+                        symbol=order_data.get("symbol"),
+                        action=OrderAction[order_data.get("side")],
+                        quantity_filled=to_amount(order_data.get("executedQty")),
+                        quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
+                        limit_price=to_amount(order_data.get("price")),
+                        limit_quantity=to_amount(order_data.get("origQty")),
+                        status=OrderStatus.PENDING if status == "NEW"
+                        else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
+                        else OrderStatus.CANCELLED if status == "CANCELED"
+                        else OrderStatus[status],
+                        creation_timestamp=to_utc_timestamp(order_data.get("time")))
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
 
@@ -198,14 +208,15 @@ class BinanceClient(AbstractWebClient):
             "timestamp": utc_timestamp_now_msec()
         })
         try:
-            async with self.http_session.delete(
-                    f"{API_BASE_URL}/order",
-                    headers={"Content-Type": "application/x-www-form-urlencoded"},
-                    data=request) as rsp:
-                if rsp.status == 404:
-                    return False
-                await self.handle_error_response(rsp)
-                return (await rsp.json()).get("status") == "CANCELED"
+            async with self.request_weight_limiter:
+                async with self.http_session.delete(
+                        f"{API_BASE_URL}/order",
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                        data=request) as rsp:
+                    if rsp.status == 404:
+                        return False
+                    await self.handle_error_response(rsp)
+                    return (await rsp.json()).get("status") == "CANCELED"
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
 

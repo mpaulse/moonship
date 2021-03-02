@@ -52,8 +52,6 @@ class WebClientResponseErrorMessage:
 
 class AbstractWebClient(MarketClient, abc.ABC):
 
-    # TODO: Implement rate-limiting on 429 errors to avoid bans
-
     def __init__(
             self,
             market_name: str,
