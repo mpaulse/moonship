@@ -5,7 +5,7 @@ name = "pypi"
 
 [packages]
 aiohttp = "*"
-aiolimiter = "==1.0.0b1"
+aiolimiter = "*"
 pyyaml = "*"
 sortedcontainers = "*"
 
