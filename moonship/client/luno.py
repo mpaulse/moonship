@@ -142,7 +142,7 @@ class LunoClient(AbstractWebClient):
                     order.id = (await rsp.json()).get("order_id")
                     return order.id
         except Exception as e:
-            raise MarketException("Failed to place order", self.market.name) from e
+            raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
@@ -266,3 +266,13 @@ class LunoClient(AbstractWebClient):
 
     def _to_order_action(self, s: str) -> OrderAction:
         return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
+
+    def _get_error_code(self, e: Exception) -> MarketErrorCode:
+        if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
+            error = e.body.get("error")
+            error_code = e.body.get("error_code")
+            if error_code == "ErrInsufficientFunds":
+                return MarketErrorCode.INSUFFICIENT_FUNDS
+            elif error_code == "ErrOrderCanceled" and error is not None and "post-only" in error:
+                return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
+        return MarketErrorCode.UNKNOWN

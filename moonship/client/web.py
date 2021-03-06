@@ -32,7 +32,6 @@ from typing import Optional
 
 __all__ = [
     "AbstractWebClient",
-    "WebClientResponseErrorMessage",
     "WebClientSessionParameters"
 ]
 
@@ -42,12 +41,6 @@ class WebClientSessionParameters:
     auth: aiohttp.BasicAuth = None
     headers: dict = None
     stream_url: str = None
-
-
-@dataclass
-class WebClientResponseErrorMessage:
-    reason: str
-    body: str
 
 
 class AbstractWebClient(MarketClient, abc.ABC):
@@ -112,11 +105,12 @@ class AbstractWebClient(MarketClient, abc.ABC):
 
     async def handle_error_response(self, response: aiohttp.ClientResponse) -> None:
         if response.status >= 400:
-            msg = WebClientResponseErrorMessage(response.reason, await response.text())
+            body = await response.json()
             response.release()
-            raise aiohttp.ClientResponseError(
+            raise HttpResponseException(
                 response.request_info,
                 response.history,
                 status=response.status,
-                message=str(msg),
-                headers=response.headers)
+                reason=response.reason,
+                headers=response.headers,
+                body=body)

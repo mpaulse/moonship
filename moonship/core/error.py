@@ -22,22 +22,51 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import aiohttp
+import aiohttp.typedefs
+import enum
 
-from dataclasses import dataclass
+from typing import Tuple, Optional
 
 __all__ = [
+    "HttpResponseException",
+    "MarketErrorCode",
     "MarketException",
     "ShutdownException",
     "StartUpException",
 ]
 
 
+class HttpResponseException(aiohttp.ClientResponseError):
+
+    def __init__(
+            self,
+            request_info: aiohttp.RequestInfo,
+            history: Tuple[aiohttp.ClientResponse, ...],
+            status: Optional[int] = None,
+            reason: str = "",
+            headers: Optional[aiohttp.typedefs.LooseHeaders] = None,
+            body: any = None):
+        super().__init__(
+            request_info,
+            history,
+            status=status,
+            message=str({"reason": reason, "body": body}),
+            headers=headers)
+        self.body = body
+
+
+class MarketErrorCode(enum.Enum):
+    UNKNOWN = 0
+    INSUFFICIENT_FUNDS = 2001
+    POST_ONLY_ORDER_CANCELLED = 2002
+
+
 class MarketException(Exception):
 
-    def __init__(self, message: str, market_name: str):
+    def __init__(self, message: str, market_name: str, error_code=MarketErrorCode.UNKNOWN):
         super().__init__(f"{market_name}: {message}")
         self.market_name = market_name
+        self.error_code = error_code
 
 
 class StartUpException(Exception):
