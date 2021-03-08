@@ -77,7 +77,7 @@ class MarketManager(MarketSubscriber):
 
     def _add_trade(self, trade: Trade) -> None:
         if len(self.market._recent_trades) >= RECENT_TRADE_LIST_LIMIT:
-            self.market._recent_trades.pop()
+            self.market._recent_trades.pop(0)
         self.market._recent_trades.add(trade)
 
     async def close(self) -> None:
