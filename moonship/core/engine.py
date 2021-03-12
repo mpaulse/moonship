@@ -31,7 +31,7 @@ from moonship.core import *
 from moonship.core.strategy import Strategy
 from typing import Optional
 
-RECENT_TRADE_LIST_LIMIT = 100
+RECENT_TRADE_LIST_LIMIT = 1000
 
 logger = logging.getLogger(__name__)
 
