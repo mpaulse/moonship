@@ -84,17 +84,18 @@ class Ticker:
         return self.ask_price - self.bid_price
 
 
+class OrderAction(Enum):
+    BUY = 0
+    SELL = 1
+
+
 @dataclass
 class Trade:
     timestamp: Timestamp
     symbol: str
     price: Amount
     quantity: Amount
-
-
-class OrderAction(Enum):
-    BUY = 0
-    SELL = 1
+    taker_action: OrderAction
 
 
 class OrderStatus(Enum):

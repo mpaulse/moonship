@@ -97,8 +97,7 @@ class LunoClient(AbstractWebClient):
 
     async def get_recent_trades(self, limit) -> list[Trade]:
         params = {
-            "pair": self.market.symbol,
-            "limit": limit
+            "pair": self.market.symbol
         }
         try:
             async with self.market_data_limiter:
@@ -113,7 +112,8 @@ class LunoClient(AbstractWebClient):
                                     timestamp=to_utc_timestamp(data.get("timestamp")),
                                     symbol=data.get("pair"),
                                     price=to_amount(data.get("price")),
-                                    quantity=to_amount(data.get("base"))))
+                                    quantity=to_amount(data.get("volume")),
+                                    taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
                     return trades
         except Exception as e:
             raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
@@ -213,9 +213,16 @@ class LunoClient(AbstractWebClient):
 
     def _on_trade_stream_events(self, events: list[dict], timestamp: Timestamp) -> None:
         if isinstance(events, list):
+            bids = self.market.bids
             for data in events:
                 if isinstance(data, dict):
                     quantity = to_amount(data.get("base"))
+                    price = to_amount(data.get("counter")) / quantity
+                    maker_order_id = data.get("maker_order_id")
+                    bids_entry = bids.get(price)
+                    taker_action = \
+                        OrderAction.SELL if bids_entry is not None and maker_order_id in bids_entry \
+                        else OrderAction.BUY
                     self.market.raise_event(
                         TradeEvent(
                             timestamp=timestamp,
@@ -223,8 +230,9 @@ class LunoClient(AbstractWebClient):
                                 timestamp=timestamp,
                                 symbol=self.market.symbol,
                                 quantity=quantity,
-                                price=to_amount(data.get("counter")) / quantity),
-                            maker_order_id=data.get("maker_order_id"),
+                                price=price,
+                                taker_action=taker_action),
+                            maker_order_id=maker_order_id,
                             taker_order_id=data.get("taker_order_id")))
 
     def _on_order_book_entry_added_stream_event(self, event: dict, timestamp: Timestamp) -> None:

@@ -138,7 +138,9 @@ class BinanceClient(AbstractWebClient):
                                     timestamp=to_utc_timestamp(data.get("time")),
                                     symbol=self.market.symbol,
                                     price=to_amount(data.get("price")),
-                                    quantity=to_amount(data.get("qty"))))
+                                    quantity=to_amount(data.get("qty")),
+                                    taker_action=OrderAction.SELL if data.get("isBuyerMaker") is True
+                                    else OrderAction.BUY))
                     return trades
         except Exception as e:
             raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
@@ -268,7 +270,8 @@ class BinanceClient(AbstractWebClient):
                         timestamp=to_utc_timestamp(event.get("T")),
                         symbol=event.get("s"),
                         quantity=quantity,
-                        price=to_amount(event.get("p"))),
+                        price=to_amount(event.get("p")),
+                        taker_action=OrderAction.SELL if buyer_is_maker else OrderAction.BUY),
                     maker_order_id=buyer_order_id if buyer_is_maker else seller_order_id,
                     taker_order_id=buyer_order_id if not buyer_is_maker else seller_order_id))
 
