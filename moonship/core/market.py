@@ -391,7 +391,15 @@ class Market:
         event.market_name = self.name
         event.symbol = self.symbol
         if isinstance(event, OrderStatusUpdateEvent):
-            self._log(logging.INFO, f"{event.order.action.name} order {event.order.id} {event.order.status.value}")
+            if self.logger.isEnabledFor(logging.INFO):
+                order = event.order
+                msg = f"{order.action.name} order {order.id} {order.status.value}"
+                if order.status == OrderStatus.PARTIALLY_FILLED:
+                    msg += f" ({to_amount_str(order.quantity_filled)}"
+                    if order.limit_quantity > 0:
+                        msg += f" / {to_amount_str(order.limit_quantity)}"
+                    msg += ")"
+                self._log(logging.INFO, msg)
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):
