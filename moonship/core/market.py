@@ -25,6 +25,7 @@
 import abc
 import asyncio
 import collections
+import inspect
 import logging
 import sortedcontainers
 
@@ -348,9 +349,9 @@ class Market:
                     log_msg += f"@ market for {to_amount_str(order.quantity)}"
             else:
                 log_msg += f"{to_amount_str(order.quantity)} @ {to_amount_str(order.price)}"
-            self.logger.info(log_msg)
+            self._log(logging.INFO, log_msg)
         order_id = await self._client.place_order(order)
-        self.logger.info(f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
+        self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
         self._pending_order_ids.add(order_id)
         return order_id
 
@@ -362,7 +363,7 @@ class Market:
     async def cancel_order(self, order_id: str) -> bool:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
-        self.logger.info(f"Cancel order {order_id}")
+        self._log(logging.INFO, f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
         await self._update_order_status(order_id)
         return success
@@ -390,7 +391,7 @@ class Market:
         event.market_name = self.name
         event.symbol = self.symbol
         if isinstance(event, OrderStatusUpdateEvent):
-            self.logger.info(f"{event.order.action.name} order {event.order.id} {event.order.status.value}")
+            self._log(logging.INFO, f"{event.order.action.name} order {event.order.id} {event.order.status.value}")
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):
@@ -409,3 +410,12 @@ class Market:
                 task = sub.on_order_status_update(event)
             if task is not None:
                 asyncio.create_task(task)
+
+    def _log(self, level: int, message: str) -> None:
+        if self.logger.isEnabledFor(level):
+            frame_stack = inspect.stack()
+            if len(frame_stack) > 2:
+                caller = frame_stack[2].frame.f_locals.get("self")
+                if caller is not None and hasattr(caller, "strategy_name"):
+                    message = f"{getattr(caller, 'strategy_name')} - {message}"
+            self.logger.log(level, message)
