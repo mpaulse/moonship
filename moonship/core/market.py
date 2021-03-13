@@ -364,8 +364,7 @@ class Market:
             raise MarketException(f"Market closed", self.name)
         self.logger.info(f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
-        if success:
-            await self._update_order_status(order_id)
+        await self._update_order_status(order_id)
         return success
 
     async def _update_order_status(self, order_id: str) -> None:
