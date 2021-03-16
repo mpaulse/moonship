@@ -391,15 +391,7 @@ class Market:
         event.market_name = self.name
         event.symbol = self.symbol
         if isinstance(event, OrderStatusUpdateEvent):
-            if self.logger.isEnabledFor(logging.INFO):
-                order = event.order
-                msg = f"{order.action.name} order {order.id} {order.status.value}"
-                if order.status == OrderStatus.PARTIALLY_FILLED:
-                    msg += f" ({to_amount_str(order.quantity_filled)}"
-                    if order.limit_quantity > 0:
-                        msg += f" / {to_amount_str(order.limit_quantity)}"
-                    msg += ")"
-                self._log(logging.INFO, msg)
+            self._on_order_status_update_event(event)
         for sub in self._subscribers:
             task = None
             if isinstance(event, OrderBookItemAddedEvent):
@@ -418,6 +410,24 @@ class Market:
                 task = sub.on_order_status_update(event)
             if task is not None:
                 asyncio.create_task(task)
+
+    def _on_order_status_update_event(self, event: OrderStatusUpdateEvent) -> None:
+        order = event.order
+        if self.logger.isEnabledFor(logging.INFO):
+            msg = f"{order.action.name} order {order.id} {order.status.value}"
+            if order.status == OrderStatus.PARTIALLY_FILLED:
+                msg += f" ({self._get_partially_filed_amount_str(order)})"
+            self._log(logging.INFO, msg)
+        if order.status == OrderStatus.CANCELLED and order.quantity_filled > 0:
+            self._log(
+                logging.WARNING,
+                f"CANCELLED order {order.id} was PARTIALLY FILLED: {self._get_partially_filed_amount_str(order)}")
+
+    def _get_partially_filed_amount_str(self, order: FullOrderDetails) -> str:
+        s = f"{to_amount_str(order.quantity_filled)}"
+        if order.limit_quantity > 0:
+            s += f" / {to_amount_str(order.limit_quantity)}"
+        return s
 
     def _log(self, level: int, message: str) -> None:
         if self.logger.isEnabledFor(level):
