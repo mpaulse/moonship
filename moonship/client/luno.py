@@ -150,20 +150,15 @@ class LunoClient(AbstractWebClient):
                 async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
                     await self.handle_error_response(rsp)
                     order_data = await rsp.json()
-                    state = order_data.get("state")
-                    quantity_filled = to_amount(order_data.get("base"))
                     return FullOrderDetails(
                         id=order_id,
                         symbol=order_data.get("pair"),
                         action=self._to_order_action(order_data.get("type")),
-                        quantity_filled=quantity_filled,
+                        quantity_filled=to_amount(order_data.get("base")),
                         quote_quantity_filled=to_amount(order_data.get("counter")),
                         limit_price=to_amount(order_data.get("limit_price")),
                         limit_quantity=to_amount(order_data.get("limit_volume")),
-                        status=OrderStatus.CANCELLED if order_data.get("expiration_timestamp") != 0 and state == "COMPLETE"
-                        else OrderStatus.FILLED if state == "COMPLETE"
-                        else OrderStatus.PARTIALLY_FILLED if quantity_filled > 0
-                        else OrderStatus.PENDING,
+                        status=self._to_order_status(order_data),
                         creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
@@ -274,6 +269,21 @@ class LunoClient(AbstractWebClient):
 
     def _to_order_action(self, s: str) -> OrderAction:
         return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
+
+    def _to_order_status(self, order_data: dict[str, any]) -> OrderStatus:
+        exp_timestamp = order_data.get("expiration_timestamp")
+        state = order_data.get("state")
+        quantity_filled = to_amount(order_data.get("base"))
+        limit_quantity = to_amount(order_data.get("limit_volume"))
+        if state == "COMPLETE":
+            if exp_timestamp != 0 or (limit_quantity != 0 and limit_quantity != quantity_filled):
+                return OrderStatus.CANCELLED
+            else:
+                return OrderStatus.FILLED
+        elif quantity_filled > 0:
+            return OrderStatus.PARTIALLY_FILLED
+        else:
+            return OrderStatus.PENDING
 
     def _get_error_code(self, e: Exception) -> MarketErrorCode:
         if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
