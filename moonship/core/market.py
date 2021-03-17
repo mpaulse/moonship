@@ -365,12 +365,17 @@ class Market:
             raise MarketException(f"Market closed", self.name)
         self._log(logging.INFO, f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
-        await self._update_order_status(order_id)
+        order = await self._complete_pending_order(order_id)
+        if order is not None:
+            success = order.status == OrderStatus.CANCELLED
         return success
 
-    async def _update_order_status(self, order_id: str) -> None:
+    async def _complete_pending_order(self, order_id: str) -> Optional[FullOrderDetails]:
         if order_id in self._pending_order_ids:
             order_details = await self.get_order(order_id)
+            if order_details.status == OrderStatus.CANCELLED \
+                    and order_details.quantity_filled == order_details.limit_quantity:
+                order_details.status = OrderStatus.FILLED
             if order_details.status == OrderStatus.FILLED \
                     or order_details.status == OrderStatus.CANCELLED \
                     or order_details.status == OrderStatus.EXPIRED \
@@ -380,6 +385,8 @@ class Market:
                 except KeyError:
                     pass
             self.raise_event(OrderStatusUpdateEvent(order=order_details))
+            return order_details
+        return None
 
     def subscribe(self, subscriber) -> None:
         self._subscribers.append(subscriber)

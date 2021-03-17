@@ -118,7 +118,7 @@ class MarketManager(MarketSubscriber):
             event.maker_order_id if event.maker_order_id in self.market._pending_order_ids \
                 else event.taker_order_id if event.taker_order_id in self.market._pending_order_ids \
                 else None
-        await self.market._update_order_status(pending_order_id)
+        await self.market._complete_pending_order(pending_order_id)
 
 
 class TradeEngine:
