@@ -358,7 +358,10 @@ class Market:
     async def get_order(self, order_id: str) -> FullOrderDetails:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
-        return await self._client.get_order(order_id)
+        order = await self._client.get_order(order_id)
+        if order.status == OrderStatus.CANCELLED and order.quantity_filled == order.limit_quantity:
+            order.status = OrderStatus.FILLED
+        return order
 
     async def cancel_order(self, order_id: str) -> bool:
         if self._status == MarketStatus.CLOSED:
@@ -373,9 +376,6 @@ class Market:
     async def _complete_pending_order(self, order_id: str) -> Optional[FullOrderDetails]:
         if order_id in self._pending_order_ids:
             order_details = await self.get_order(order_id)
-            if order_details.status == OrderStatus.CANCELLED \
-                    and order_details.quantity_filled == order_details.limit_quantity:
-                order_details.status = OrderStatus.FILLED
             if order_details.status == OrderStatus.FILLED \
                     or order_details.status == OrderStatus.CANCELLED \
                     or order_details.status == OrderStatus.EXPIRED \
