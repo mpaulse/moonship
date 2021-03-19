@@ -24,7 +24,6 @@
 
 import abc
 import asyncio
-import collections
 import inspect
 import logging
 import sortedcontainers
@@ -32,7 +31,7 @@ import sortedcontainers
 from dataclasses import dataclass, field
 from datetime import timezone
 from moonship.core import *
-from typing import Iterator, Optional, Union
+from typing import Iterator, Mapping, Optional, Union
 
 __all__ = [
     "Market",
@@ -223,7 +222,7 @@ class OrderBook:
         return self.bids if order.action == OrderAction.BUY else self.asks
 
 
-class OrderBookEntriesView(collections.Mapping):
+class OrderBookEntriesView(Mapping):
 
     def __init__(self, entries: sortedcontainers.SortedDict[Amount, OrderBookEntry]) -> None:
         self._entries = entries

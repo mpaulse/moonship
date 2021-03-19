@@ -22,11 +22,19 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "1.2.dev0"
+import abc
 
-from moonship.core.config import *
-from moonship.core.data import *
-from moonship.core.error import *
-from moonship.core.market import *
-from moonship.core.strategy import *
-from moonship.core.launcher import *
+__all__ = [
+    "Service"
+]
+
+
+class Service(abc.ABC):
+
+    @abc.abstractmethod
+    async def start(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def stop(self) -> None:
+        pass
