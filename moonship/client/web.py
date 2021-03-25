@@ -105,7 +105,10 @@ class AbstractWebClient(MarketClient, abc.ABC):
 
     async def handle_error_response(self, response: aiohttp.ClientResponse) -> None:
         if response.status >= 400:
-            body = await response.json()
+            try:
+                body = await response.json()
+            except aiohttp.ContentTypeError:
+                body = await response.text()
             response.release()
             raise HttpResponseException(
                 response.request_info,
