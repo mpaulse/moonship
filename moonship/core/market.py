@@ -359,25 +359,29 @@ class Market:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         order = await self._client.get_order(order_id)
-        if order.status == OrderStatus.CANCELLED and order.quantity_filled == order.limit_quantity:
-            order.status = OrderStatus.FILLED
+        if order.status == OrderStatus.CANCELLED:
+            if order.quantity_filled == order.limit_quantity:
+                order.status = OrderStatus.FILLED
+            elif order.quantity_filled > 0:
+                order.status = OrderStatus.CANCELLED_AND_PARTIALLY_FILLED
         return order
 
-    async def cancel_order(self, order_id: str) -> bool:
+    async def cancel_order(self, order_id: str) -> OrderStatus:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         self._log(logging.INFO, f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
         order = await self._complete_pending_order(order_id)
         if order is not None:
-            success = order.status == OrderStatus.CANCELLED
-        return success
+            return order.status
+        return OrderStatus.CANCELLED if success else OrderStatus.PENDING
 
     async def _complete_pending_order(self, order_id: str) -> Optional[FullOrderDetails]:
         if order_id in self._pending_order_ids:
             order_details = await self.get_order(order_id)
             if order_details.status == OrderStatus.FILLED \
                     or order_details.status == OrderStatus.CANCELLED \
+                    or order_details.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED \
                     or order_details.status == OrderStatus.EXPIRED \
                     or order_details.status == OrderStatus.REJECTED:
                 try:
@@ -422,13 +426,11 @@ class Market:
         order = event.order
         if self.logger.isEnabledFor(logging.INFO):
             msg = f"{order.action.name} order {order.id} {order.status.value}"
-            if order.status == OrderStatus.PARTIALLY_FILLED:
+            if order.status == OrderStatus.PARTIALLY_FILLED \
+                    or order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED:
                 msg += f" ({self._get_partially_filed_amount_str(order)})"
-            self._log(logging.INFO, msg)
-        if order.status == OrderStatus.CANCELLED and order.quantity_filled > 0:
-            self._log(
-                logging.WARNING,
-                f"CANCELLED order {order.id} was PARTIALLY FILLED: {self._get_partially_filed_amount_str(order)}")
+            level = logging.WARNING if order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED else logging.INFO
+            self._log(level, msg)
 
     def _get_partially_filed_amount_str(self, order: FullOrderDetails) -> str:
         s = f"{to_amount_str(order.quantity_filled)}"
