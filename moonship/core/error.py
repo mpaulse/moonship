@@ -59,6 +59,7 @@ class MarketErrorCode(enum.Enum):
     UNKNOWN = 0
     INSUFFICIENT_FUNDS = 2001
     POST_ONLY_ORDER_CANCELLED = 2002
+    NO_SUCH_ORDER = 2003
 
 
 class MarketException(Exception):

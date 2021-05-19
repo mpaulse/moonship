@@ -53,6 +53,7 @@ class BinanceClient(AbstractWebClient):
             raise StartUpException("Binance secret key not configured")
         self.last_order_book_update_id = -1
         self.order_book_event_buf: list[dict] = []
+        self.order_details_cache: dict[str, FullOrderDetails] = {}
         symbol = app_config.get(f"moonship.markets.{market_name}.symbol").lower()
         super().__init__(
             market_name,
@@ -152,7 +153,9 @@ class BinanceClient(AbstractWebClient):
             "type": "MARKET" if isinstance(order, MarketOrder)
             else "LIMIT_MAKER" if order.post_only
             else "LIMIT",
-            "newOrderRespType": "ACK"
+            "timeInForce": "GTC",
+            "newOrderRespType": "ACK",
+            "timestamp": utc_timestamp_now_msec()
         }
         if isinstance(order, LimitOrder):
             request["price"] = to_amount_str(order.price)
@@ -174,12 +177,16 @@ class BinanceClient(AbstractWebClient):
                         order.id = (await rsp.json()).get("orderId")
                         return order.id
         except Exception as e:
-            raise MarketException("Failed to place order", self.market.name) from e
+            raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
+        order_details = self.order_details_cache.get(order_id)
+        if order_details is not None:
+            return order_details
         params = self._url_encode_and_sign({
             "symbol": self.market.symbol,
-            "orderId": order_id
+            "orderId": order_id,
+            "timestamp": utc_timestamp_now_msec()
         })
         try:
             async with self.request_weight_limiter:
@@ -201,7 +208,16 @@ class BinanceClient(AbstractWebClient):
                         else OrderStatus[status],
                         creation_timestamp=to_utc_timestamp(order_data.get("time")))
         except Exception as e:
-            raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
+            error_code = self._get_error_code(e)
+            if error_code == MarketErrorCode.NO_SUCH_ORDER:
+                await asyncio.sleep(1)
+                order_details = self.order_details_cache.get(order_id)
+                if order_details is not None:
+                    return order_details
+            raise MarketException(
+                f"Could not retrieve details of order {order_id}",
+                self.market.name,
+                error_code) from e
 
     async def cancel_order(self, order_id: str) -> bool:
         request = self._url_encode_and_sign({
@@ -220,16 +236,26 @@ class BinanceClient(AbstractWebClient):
                     await self.handle_error_response(rsp)
                     return (await rsp.json()).get("status") == "CANCELED"
         except Exception as e:
-            raise MarketException("Failed to cancel order", self.market.name) from e
+            error_code = self._get_error_code(e)
+            if error_code == MarketErrorCode.NO_SUCH_ORDER:
+                return True
+            raise MarketException("Failed to cancel order", self.market.name, error_code) from e
 
     def _url_encode_and_sign(self, data: dict) -> str:
         params = urllib.parse.urlencode(data, encoding="utf-8")
-        signature = hmac.new(bytes(self.secret_key), bytes(params), hashlib.sha256).hexdigest()
+        signature = hmac.new(
+            bytes(self.secret_key, encoding="utf-8"),
+            bytes(params, encoding="utf-8"),
+            hashlib.sha256).hexdigest()
         return f"{params}&signature={signature}"
 
     async def on_before_data_stream_connect(self) -> None:
         self.last_order_book_update_id = -1
         self.order_book_event_buf.clear()
+        async with self.http_session.post(f"{API_BASE_URL}/userDataStream") as rsp:
+            await self.handle_error_response(rsp)
+            listen_key = (await rsp.json()).get("listenKey")
+            self.session_params.stream_url += f"/{listen_key}"
 
     def _get_orders_from_stream(
             self,
@@ -252,10 +278,30 @@ class BinanceClient(AbstractWebClient):
             data = msg.get("data")
             if isinstance(data, dict):
                 event = data.get("e")
-                if event == "trade":
+                if event == "executionReport":
+                    self._on_order_update_stream_event(data)
+                elif event == "trade":
                     self._on_trade_stream_event(data)
                 elif event == "depthUpdate":
                     self._on_order_book_stream_event(data)
+
+    def _on_order_update_stream_event(self, event: dict) -> None:
+        if isinstance(event, dict):
+            status = event.get("X")
+            order_details = FullOrderDetails(
+                id=str(event.get("i")),
+                symbol=event.get("s"),
+                action=OrderAction[event.get("S")],
+                quantity_filled=to_amount(event.get("z")),
+                quote_quantity_filled=to_amount(event.get("Z")),
+                limit_price=to_amount(event.get("p")),
+                limit_quantity=to_amount(event.get("q")),
+                status=OrderStatus.PENDING if status == "NEW"
+                else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
+                else OrderStatus.CANCELLED if status == "CANCELED"
+                else OrderStatus[status],
+                creation_timestamp=to_utc_timestamp(event.get("O")))
+            self.order_details_cache[order_details.id] = order_details
 
     def _on_trade_stream_event(self, event: dict) -> None:
         if isinstance(event, dict):
@@ -325,3 +371,16 @@ class BinanceClient(AbstractWebClient):
                         self.market.raise_event(OrderBookItemAddedEvent(timestamp=timestamp, order=order))
                     else:
                         self.market.raise_event(OrderBookItemRemovedEvent(timestamp=timestamp, order_id=order.id))
+
+    def _get_error_code(self, e: Exception) -> MarketErrorCode:
+        if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
+            error_code = e.body.get("code")
+            error = e.body.get("msg")
+            if error_code == -2013 or error_code == -2011 and "Unknown order" in error:
+                return MarketErrorCode.NO_SUCH_ORDER
+            elif error_code == -2010:  # New order rejected
+                if "immediately match and take" in error:
+                    return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
+                elif "insufficient balance" in error:
+                    return MarketErrorCode.INSUFFICIENT_FUNDS
+        return MarketErrorCode.UNKNOWN
