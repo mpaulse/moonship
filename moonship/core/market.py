@@ -260,7 +260,7 @@ class Market:
         self._order_book = OrderBook()
         self._recent_trades = sortedcontainers.SortedList(key=lambda t: t.timestamp)
         self._subscribers: list[MarketSubscriber] = []
-        self._pending_order_ids: set[str] = set()
+        self._pending_orders: dict[str, AbstractOrder] = {}
         self._logger = logging.getLogger(f"moonship.market.{name}")
 
     @property
@@ -352,7 +352,7 @@ class Market:
             self._log(logging.INFO, log_msg)
         order_id = await self._client.place_order(order)
         self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
-        self._pending_order_ids.add(order_id)
+        self._pending_orders[order_id] = order
         return order_id
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
@@ -377,7 +377,8 @@ class Market:
         return OrderStatus.CANCELLED if success else OrderStatus.PENDING
 
     async def _complete_pending_order(self, order_id: str) -> Optional[FullOrderDetails]:
-        if order_id in self._pending_order_ids:
+        self.logger.debug(f"Complete order {order_id}")
+        if order_id in self._pending_orders:
             order_details = await self.get_order(order_id)
             if order_details.status == OrderStatus.FILLED \
                     or order_details.status == OrderStatus.CANCELLED \
@@ -385,11 +386,13 @@ class Market:
                     or order_details.status == OrderStatus.EXPIRED \
                     or order_details.status == OrderStatus.REJECTED:
                 try:
-                    self._pending_order_ids.remove(order_id)
+                    self.logger.debug(f"Remove order {order_id}")
+                    del self._pending_orders[order_id]
                 except KeyError:
                     pass
             self.raise_event(OrderStatusUpdateEvent(order=order_details))
             return order_details
+        self.logger.debug(f"Order {order_id} not found in pending list")
         return None
 
     def subscribe(self, subscriber) -> None:
@@ -429,6 +432,7 @@ class Market:
             if order.status == OrderStatus.PARTIALLY_FILLED \
                     or order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED:
                 msg += f" ({self._get_partially_filed_amount_str(order)})"
+                self._log(logging.INFO, str(order))
             level = logging.WARNING if order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED else logging.INFO
             self._log(level, msg)
 

@@ -115,10 +115,21 @@ class MarketManager(MarketSubscriber):
                     bid_price=self.market.bid_price,
                     ask_price=self.market.ask_price)))
         pending_order_id = \
-            event.maker_order_id if event.maker_order_id in self.market._pending_order_ids \
-                else event.taker_order_id if event.taker_order_id in self.market._pending_order_ids \
+            event.maker_order_id if event.maker_order_id in self.market._pending_orders \
+                else event.taker_order_id if event.taker_order_id in self.market._pending_orders \
                 else None
-        await self.market._complete_pending_order(pending_order_id)
+        if pending_order_id is not None:
+            await self.market._complete_pending_order(pending_order_id)
+        else:  # In case trade events for local orders do not arrive from the market client
+            complete_order_ids: list[str] = []
+            for order in self.market._pending_orders.values():
+                if isinstance(order, LimitOrder):
+                    if (order.price > self.market._current_price and order.action == OrderAction.BUY) \
+                            or (order.price < self.market._current_price and order.action == OrderAction.SELL):
+                        logger.debug(f"Checking if order {order.id} is complete")
+                        complete_order_ids.append(order.id)
+            for order_id in complete_order_ids:
+                await self.market._complete_pending_order(order_id)
 
 
 class TradeEngine:
