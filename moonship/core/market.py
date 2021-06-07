@@ -123,7 +123,11 @@ class MarketClient(abc.ABC):
 
     def __init__(self, market_name: str, app_config: Config) -> None:
         self.market: Optional["Market"] = None
-        pass
+        self.logger: Optional[logging.Logger] = None
+
+    def _set_market(self, market: "Market") -> None:
+        self.market = market
+        self.logger = self.market.logger.getChild("client")
 
     @abc.abstractmethod
     async def connect(self):
@@ -249,7 +253,6 @@ class Market:
         self._name = name
         self._symbol = symbol
         self._client = client
-        self._client.market = self
         self._base_asset = symbol[0:3] if len(symbol) == 6 else symbol
         self._base_asset_precision = 0
         self._base_asset_min_quantity = Amount(1)
@@ -262,6 +265,7 @@ class Market:
         self._subscribers: list[MarketSubscriber] = []
         self._pending_orders: dict[str, AbstractOrder] = {}
         self._logger = logging.getLogger(f"moonship.market.{name}")
+        self._client._set_market(self)
 
     @property
     def name(self) -> str:
@@ -432,7 +436,7 @@ class Market:
             if order.status == OrderStatus.PARTIALLY_FILLED \
                     or order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED:
                 msg += f" ({self._get_partially_filed_amount_str(order)})"
-                self._log(logging.INFO, str(order))
+                self._log(logging.DEBUG, str(order))
             level = logging.WARNING if order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED else logging.INFO
             self._log(level, msg)
 

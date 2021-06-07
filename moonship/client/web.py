@@ -68,7 +68,7 @@ class AbstractWebClient(MarketClient, abc.ABC):
         asyncio.create_task(self.process_data_stream())
 
     async def _log_http_activity(self, session: aiohttp.ClientSession, context, params: any) -> None:
-        self.market.logger.debug(params)
+        self.logger.debug(params)
 
     async def close(self) -> None:
         if self.http_session is not None:
@@ -90,7 +90,7 @@ class AbstractWebClient(MarketClient, abc.ABC):
                         await self.on_data_stream_msg(await websocket.receive_json(), websocket)
             except Exception as e:
                 if not self.closed:
-                    self.market.logger.exception("Data stream error", exc_info=e)
+                    self.logger.exception("Data stream error", exc_info=e)
                     await asyncio.sleep(1)
 
     async def on_before_data_stream_connect(self) -> None:
