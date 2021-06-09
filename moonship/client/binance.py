@@ -198,10 +198,11 @@ class BinanceClient(AbstractWebClient):
                         id=order_id,
                         symbol=order_data.get("symbol"),
                         action=OrderAction[order_data.get("side")],
+                        quantity=to_amount(order_data.get("origQty")),
+                        quote_quantity=to_amount(order_data.get("origQuoteOrderQty")),
                         quantity_filled=to_amount(order_data.get("executedQty")),
                         quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
                         limit_price=to_amount(order_data.get("price")),
-                        limit_quantity=to_amount(order_data.get("origQty")),
                         status=OrderStatus.PENDING if status == "NEW"
                         else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
                         else OrderStatus.CANCELLED if status == "CANCELED"
@@ -292,10 +293,11 @@ class BinanceClient(AbstractWebClient):
                 id=str(event.get("i")),
                 symbol=event.get("s"),
                 action=OrderAction[event.get("S")],
+                quantity=to_amount(event.get("q")),
+                quote_quantity=to_amount(event.get("Q")),
                 quantity_filled=to_amount(event.get("z")),
                 quote_quantity_filled=to_amount(event.get("Z")),
                 limit_price=to_amount(event.get("p")),
-                limit_quantity=to_amount(event.get("q")),
                 status=OrderStatus.PENDING if status == "NEW"
                 else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
                 else OrderStatus.CANCELLED if status == "CANCELED"

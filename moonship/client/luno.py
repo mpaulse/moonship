@@ -154,10 +154,10 @@ class LunoClient(AbstractWebClient):
                         id=order_id,
                         symbol=order_data.get("pair"),
                         action=self._to_order_action(order_data.get("type")),
+                        quantity=to_amount(order_data.get("limit_volume")),
                         quantity_filled=to_amount(order_data.get("base")),
                         quote_quantity_filled=to_amount(order_data.get("counter")),
                         limit_price=to_amount(order_data.get("limit_price")),
-                        limit_quantity=to_amount(order_data.get("limit_volume")),
                         status=self._to_order_status(order_data),
                         creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
         except Exception as e:
@@ -273,10 +273,10 @@ class LunoClient(AbstractWebClient):
     def _to_order_status(self, order_data: dict[str, any]) -> OrderStatus:
         exp_timestamp = order_data.get("expiration_timestamp")
         state = order_data.get("state")
+        quantity = to_amount(order_data.get("limit_volume"))
         quantity_filled = to_amount(order_data.get("base"))
-        limit_quantity = to_amount(order_data.get("limit_volume"))
         if state == "COMPLETE":
-            if exp_timestamp != 0 or (limit_quantity != 0 and limit_quantity != quantity_filled):
+            if exp_timestamp != 0 or (quantity != 0 and quantity != quantity_filled):
                 return OrderStatus.CANCELLED
             else:
                 return OrderStatus.FILLED

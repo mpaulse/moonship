@@ -266,7 +266,7 @@ class Market:
         self._order_book = OrderBook()
         self._recent_trades = sortedcontainers.SortedList(key=lambda t: t.timestamp)
         self._subscribers: list[MarketSubscriber] = []
-        self._pending_orders: dict[str, AbstractOrder] = {}
+        self._pending_orders: dict[str, FullOrderDetails] = {}
         self._logger = logging.getLogger(f"moonship.market.{name}")
         self._client._set_market(self)
 
@@ -359,7 +359,14 @@ class Market:
             self._log(logging.INFO, log_msg)
         order_id = await self._client.place_order(order)
         self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
-        self._pending_orders[order_id] = order
+        self._pending_orders[order_id] = \
+            FullOrderDetails(
+                id=order.id,
+                symbol=self.symbol,
+                action=order.action,
+                quantity=order.quantity if isinstance(order, LimitOrder) or order.is_base_quantity else Amount(0),
+                quote_quantity=order.quantity if isinstance(order, MarketOrder) and not order.is_base_quantity else Amount(0),
+                limit_price=order.price if isinstance(order, LimitOrder) else Amount(0))
         return order_id
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
@@ -367,10 +374,11 @@ class Market:
             raise MarketException(f"Market closed", self.name)
         order = await self._client.get_order(order_id)
         if order.status == OrderStatus.CANCELLED:
-            if order.quantity_filled == order.limit_quantity:
-                order.status = OrderStatus.FILLED
-            elif order.quantity_filled > 0:
-                order.status = OrderStatus.CANCELLED_AND_PARTIALLY_FILLED
+            if order.quantity_filled > 0 or order.quote_quantity_filled > 0:
+                if order.quantity_filled == order.quantity or order.quote_quantity_filled == order.quote_quantity:
+                    order.status = OrderStatus.FILLED
+                else:
+                    order.status = OrderStatus.CANCELLED_AND_PARTIALLY_FILLED
         return order
 
     async def cancel_order(self, order_id: str) -> OrderStatus:
@@ -378,28 +386,41 @@ class Market:
             raise MarketException(f"Market closed", self.name)
         self._log(logging.INFO, f"Cancel order {order_id}")
         success = await self._client.cancel_order(order_id)
-        order = await self._complete_pending_order(order_id)
+        order = await self._handle_pending_order_update(order_id)
         if order is not None:
             return order.status
         return OrderStatus.CANCELLED if success else OrderStatus.PENDING
 
-    async def _complete_pending_order(self, order_id: str) -> Optional[FullOrderDetails]:
-        self.logger.debug(f"Complete order {order_id}")
-        if order_id in self._pending_orders:
-            order_details = await self.get_order(order_id)
-            if order_details.status == OrderStatus.FILLED \
-                    or order_details.status == OrderStatus.CANCELLED \
-                    or order_details.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED \
-                    or order_details.status == OrderStatus.EXPIRED \
-                    or order_details.status == OrderStatus.REJECTED:
+    async def _handle_pending_order_update(self, order_id: str) -> Optional[FullOrderDetails]:
+        pending_order_details = self._pending_orders.get(order_id)
+        if pending_order_details is not None:
+            updated_order_details = await self.get_order(order_id)
+            if (pending_order_details.status == OrderStatus.PARTIALLY_FILLED
+                        and updated_order_details.status == OrderStatus.PENDING) \
+                    or (pending_order_details.status == OrderStatus.FILLED
+                        and (updated_order_details.status in [OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED])):
+                # If info received in TradeEvents are more up-to-date than the info returned by the get_order() call
+                updated_order_details.status = pending_order_details.status
+                updated_order_details.quantity_filled = pending_order_details.quantity_filled
+                updated_order_details.quote_quantity_filled = pending_order_details.quote_quantity_filled
+            if updated_order_details.quote_quantity == 0 and pending_order_details.quote_quantity > 0:
+                # If the get_order() call does not provide the original quote quantity
+                updated_order_details.quote_quantity = pending_order_details.quote_quantity
+            if updated_order_details.status in [
+                OrderStatus.FILLED,
+                OrderStatus.CANCELLED,
+                OrderStatus.CANCELLED_AND_PARTIALLY_FILLED,
+                OrderStatus.EXPIRED,
+                OrderStatus.REJECTED
+            ]:
                 try:
-                    self.logger.debug(f"Remove order {order_id}")
                     del self._pending_orders[order_id]
                 except KeyError:
                     pass
-            self.raise_event(OrderStatusUpdateEvent(order=order_details))
-            return order_details
-        self.logger.debug(f"Order {order_id} not found in pending list")
+            else:
+                self._pending_orders[order_id] = updated_order_details
+            self.raise_event(OrderStatusUpdateEvent(order=updated_order_details))
+            return updated_order_details
         return None
 
     def subscribe(self, subscriber) -> None:
@@ -445,8 +466,8 @@ class Market:
 
     def _get_partially_filed_amount_str(self, order: FullOrderDetails) -> str:
         s = f"{to_amount_str(order.quantity_filled)}"
-        if order.limit_quantity > 0:
-            s += f" / {to_amount_str(order.limit_quantity)}"
+        if order.quantity > 0:
+            s += f" / {to_amount_str(order.quantity)}"
         return s
 
     def _log(self, level: int, message: str) -> None:
