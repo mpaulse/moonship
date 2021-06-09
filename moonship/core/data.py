@@ -131,11 +131,12 @@ class LimitOrder(AbstractOrder):
 @dataclass
 class FullOrderDetails(AbstractOrder):
     symbol: str = None
+    quantity: Amount = Amount(0)
+    quote_quantity: Amount = Amount(0)
+    limit_price: Amount = Amount(0)
+    status: OrderStatus = OrderStatus.PENDING
     quantity_filled: Amount = Amount(0)
     quote_quantity_filled: Amount = Amount(0)
-    limit_price: Amount = Amount(0)
-    limit_quantity: Amount = Amount(0)
-    status: OrderStatus = OrderStatus.PENDING
     creation_timestamp: Timestamp = None
 
 

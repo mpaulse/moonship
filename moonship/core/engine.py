@@ -119,17 +119,25 @@ class MarketManager(MarketSubscriber):
                 else event.taker_order_id if event.taker_order_id in self.market._pending_orders \
                 else None
         if pending_order_id is not None:
-            await self.market._complete_pending_order(pending_order_id)
-        else:  # In case trade events for local orders do not arrive from the market client
-            complete_order_ids: list[str] = []
+            order = self.market._pending_orders.get(pending_order_id)
+            if order is not None:
+                order.quantity_filled += event.trade.quantity
+                order.quote_quantity_filled += event.trade.quantity * event.trade.price
+                if order.quantity == order.quantity_filled or order.quote_quantity == order.quote_quantity_filled:
+                    order.status = OrderStatus.FILLED
+                else:
+                    order.status = OrderStatus.PARTIALLY_FILLED
+            await self.market._handle_pending_order_update(pending_order_id)
+        else:  # In case trade events for pending orders did not arrive or were lost
+            pending_order_ids: list[str] = []
             for order in self.market._pending_orders.values():
-                if isinstance(order, LimitOrder):
-                    if (order.price > self.market._current_price and order.action == OrderAction.BUY) \
-                            or (order.price < self.market._current_price and order.action == OrderAction.SELL):
-                        logger.debug(f"Checking if order {order.id} is complete")
-                        complete_order_ids.append(order.id)
-            for order_id in complete_order_ids:
-                await self.market._complete_pending_order(order_id)
+                if order.limit_price > 0 \
+                        and ((order.limit_price > self.market._current_price and order.action == OrderAction.BUY)
+                             or (order.limit_price < self.market._current_price and order.action == OrderAction.SELL)):
+                    logger.debug(f"Checking if pending order {order.id} was updated")
+                    pending_order_ids.append(order.id)
+            for order_id in pending_order_ids:
+                await self.market._handle_pending_order_update(order_id)
 
 
 class TradeEngine:
