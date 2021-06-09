@@ -90,20 +90,20 @@ class MarketManager(MarketSubscriber):
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:
         self.market._order_book.clear()
         for order in event.orders:
-            self.market._order_book.add_order(order)
+            self.market._order_book.add(order)
 
     async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
-        self.market._order_book.add_order(event.order)
+        self.market._order_book.add(event.order)
 
     async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
-        self.market._order_book.remove_order(event.order_id)
+        self.market._order_book.remove(event.order_id)
 
     async def on_market_status_update(self, event: MarketStatusEvent) -> None:
         self.market._status = event.status
 
     async def on_trade(self, event: TradeEvent) -> None:
         self.market._current_price = event.trade.price
-        self.market._order_book.remove_order(event.maker_order_id)
+        self.market._order_book.remove(event.maker_order_id, event.trade.quantity)
         self._add_trade(event.trade)
         self.market.raise_event(
             TickerEvent(

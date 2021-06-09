@@ -190,7 +190,7 @@ class OrderBook:
         self.asks = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
         self.order_entry_index: dict[str, OrderBookEntry] = {}
 
-    def add_order(self, order: LimitOrder) -> None:
+    def add(self, order: LimitOrder) -> None:
         entries = self._get_entries_list(order)
         entry: OrderBookEntry = entries.get(order.price)
         if entry is None:
@@ -200,16 +200,19 @@ class OrderBook:
             entry._orders[order.id] = order
         self.order_entry_index[order.id] = entry
 
-    def remove_order(self, order_id: str) -> None:
+    def remove(self, order_id: str, quantity: Optional[Amount] = None) -> None:
         entry = self.order_entry_index.get(order_id)
         if entry is not None:
             order = entry._orders.get(order_id)
             if order is not None:
-                del entry._orders[order_id]
+                if quantity is not None:
+                    order.quantity -= quantity
+                if quantity is None or order.quantity <= 0:
+                    del entry._orders[order_id]
                 if entry.quantity == 0:
                     entries = self._get_entries_list(order)
                     del entries[entry.price]
-            del self.order_entry_index[order_id]
+                    del self.order_entry_index[order_id]
 
     def clear(self) -> None:
         self.order_entry_index.clear()
