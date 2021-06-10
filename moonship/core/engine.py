@@ -128,6 +128,16 @@ class MarketManager(MarketSubscriber):
                 else:
                     order.status = OrderStatus.PARTIALLY_FILLED
             await self.market._handle_pending_order_update(pending_order_id)
+        else:  # In case trade events for pending orders did not arrive or were lost
+            pending_order_ids: list[str] = []
+            for order in self.market._pending_orders.values():
+                if order.limit_price > 0 \
+                        and ((order.limit_price > self.market._current_price and order.action == OrderAction.BUY)
+                             or (order.limit_price < self.market._current_price and order.action == OrderAction.SELL)):
+                    logger.debug(f"Checking if pending order {order.id} was updated")
+                    pending_order_ids.append(order.id)
+            for order_id in pending_order_ids:
+                await self.market._handle_pending_order_update(order_id)
 
 
 class TradeEngine:

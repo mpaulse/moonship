@@ -395,10 +395,8 @@ class Market:
         pending_order_details = self._pending_orders.get(order_id)
         if pending_order_details is not None:
             updated_order_details = await self.get_order(order_id)
-            if (pending_order_details.status == OrderStatus.PARTIALLY_FILLED
-                        and updated_order_details.status == OrderStatus.PENDING) \
-                    or (pending_order_details.status == OrderStatus.FILLED
-                        and (updated_order_details.status in [OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED])):
+            if pending_order_details.status in [OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED] \
+                    and updated_order_details.status in [OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED]:
                 # If info received in TradeEvents are more up-to-date than the info returned by the get_order() call
                 updated_order_details.status = pending_order_details.status
                 updated_order_details.quantity_filled = pending_order_details.quantity_filled
@@ -417,8 +415,6 @@ class Market:
                     del self._pending_orders[order_id]
                 except KeyError:
                     pass
-            else:
-                self._pending_orders[order_id] = updated_order_details
             self.raise_event(OrderStatusUpdateEvent(order=updated_order_details))
             return updated_order_details
         return None
@@ -460,7 +456,6 @@ class Market:
             if order.status == OrderStatus.PARTIALLY_FILLED \
                     or order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED:
                 msg += f" ({self._get_partially_filed_amount_str(order)})"
-                self._log(logging.DEBUG, str(order))
             level = logging.WARNING if order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED else logging.INFO
             self._log(level, msg)
 
