@@ -385,11 +385,12 @@ class Market:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         self._log(logging.INFO, f"Cancel order {order_id}")
-        success = await self._client.cancel_order(order_id)
+        await self._client.cancel_order(order_id)
         order = await self._handle_pending_order_update(order_id)
         if order is not None:
             return order.status
-        return OrderStatus.CANCELLED if success else OrderStatus.PENDING
+        order = await self.get_order(order_id)
+        return order.status
 
     async def _handle_pending_order_update(self, order_id: str) -> Optional[FullOrderDetails]:
         pending_order_details = self._pending_orders.get(order_id)
