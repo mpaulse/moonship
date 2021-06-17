@@ -78,10 +78,10 @@ class Strategy:
 
     async def stop(self) -> None:
         if self.algo.running:
-            for market in self.algo.markets.values():
-                market.unsubscribe(self.algo)
             self.algo.running = False
             await self.algo.on_stopped()
+            for market in self.algo.markets.values():
+                market.unsubscribe(self.algo)
 
     @property
     def is_running(self) -> bool:
