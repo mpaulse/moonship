@@ -28,11 +28,12 @@ import asyncio
 
 from dataclasses import dataclass
 from moonship.core import *
-from typing import Optional
+from typing import Optional, Union
 
 __all__ = [
     "AbstractWebClient",
-    "WebClientSessionParameters"
+    "WebClientSessionParameters",
+    "WebClientStreamParameters"
 ]
 
 
@@ -40,7 +41,12 @@ __all__ = [
 class WebClientSessionParameters:
     auth: aiohttp.BasicAuth = None
     headers: dict = None
-    stream_url: str = None
+
+
+@dataclass
+class WebClientStreamParameters:
+    url: str = None
+    headers: dict = None
 
 
 class AbstractWebClient(MarketClient, abc.ABC):
@@ -49,9 +55,11 @@ class AbstractWebClient(MarketClient, abc.ABC):
             self,
             market_name: str,
             app_config: Config,
-            session_params: WebClientSessionParameters) -> None:
+            session_params: WebClientSessionParameters,
+            stream_params: Union[WebClientStreamParameters, list[WebClientStreamParameters]] = None) -> None:
         super().__init__(market_name, app_config)
         self.session_params = session_params
+        self.stream_params = stream_params
         self.http_session: Optional[aiohttp.ClientSession] = None
 
     async def connect(self) -> None:
@@ -65,7 +73,11 @@ class AbstractWebClient(MarketClient, abc.ABC):
             auth=self.session_params.auth,
             headers=self.session_params.headers,
             trace_configs=[trace_config])
-        asyncio.create_task(self.process_data_stream())
+        if isinstance(self.stream_params, WebClientStreamParameters):
+            asyncio.create_task(self._process_data_stream(self.stream_params))
+        elif isinstance(self.session_params, list):
+            for stream_params in self.stream_params:
+                asyncio.create_task(self._process_data_stream(stream_params))
 
     async def _log_http_activity(self, session: aiohttp.ClientSession, context, params: any) -> None:
         self.logger.debug(params)
@@ -80,12 +92,12 @@ class AbstractWebClient(MarketClient, abc.ABC):
     def closed(self) -> bool:
         return self.http_session is None or self.http_session.closed
 
-    async def process_data_stream(self):
+    async def _process_data_stream(self, params: WebClientStreamParameters):
         while not self.closed:
             try:
-                await self.on_before_data_stream_connect()
-                async with self.http_session.ws_connect(self.session_params.stream_url) as websocket:
-                    await self.on_after_data_stream_connect(websocket)
+                await self.on_before_data_stream_connect(params)
+                async with self.http_session.ws_connect(params.url, headers=params.headers) as websocket:
+                    await self.on_after_data_stream_connect(websocket, params)
                     while not self.closed and not websocket.closed:
                         await self.on_data_stream_msg(await websocket.receive_json(), websocket)
             except Exception as e:
@@ -93,10 +105,13 @@ class AbstractWebClient(MarketClient, abc.ABC):
                     self.logger.exception("Data stream error", exc_info=e)
                     await asyncio.sleep(1)
 
-    async def on_before_data_stream_connect(self) -> None:
+    async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
         pass
 
-    async def on_after_data_stream_connect(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_after_data_stream_connect(
+            self,
+            websocket: aiohttp.ClientWebSocketResponse,
+            params: WebClientStreamParameters) -> None:
         pass
 
     @abc.abstractmethod

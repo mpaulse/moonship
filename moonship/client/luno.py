@@ -53,8 +53,9 @@ class LunoClient(AbstractWebClient):
             market_name,
             app_config,
             WebClientSessionParameters(
-                stream_url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}",
-                auth=aiohttp.BasicAuth(key_id, key_secret)))
+                auth=aiohttp.BasicAuth(key_id, key_secret)),
+            WebClientStreamParameters(
+                url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}"))
 
     async def get_market_info(self, use_cached=True) -> MarketInfo:
         async with self.market_info_lock:
@@ -176,7 +177,10 @@ class LunoClient(AbstractWebClient):
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
 
-    async def on_after_data_stream_connect(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_after_data_stream_connect(
+            self,
+            websocket: aiohttp.ClientWebSocketResponse,
+            params: WebClientStreamParameters) -> None:
         await websocket.send_json({
             "api_key_id": self.session_params.auth.login,
             "api_key_secret": self.session_params.auth.password
