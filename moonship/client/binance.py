@@ -59,8 +59,9 @@ class BinanceClient(AbstractWebClient):
             market_name,
             app_config,
             WebClientSessionParameters(
-                stream_url=f"{STREAM_BASE_URL}?streams={symbol}@trade/{symbol}@depth",
-                headers={"X-MBX-APIKEY": api_key}))
+                headers={"X-MBX-APIKEY": api_key}),
+            WebClientStreamParameters(
+                url=f"{STREAM_BASE_URL}?streams={symbol}@trade/{symbol}@depth"))
 
     async def get_market_info(self, use_cached=True) -> MarketInfo:
         async with self.market_info_lock:
@@ -250,13 +251,13 @@ class BinanceClient(AbstractWebClient):
             hashlib.sha256).hexdigest()
         return f"{params}&signature={signature}"
 
-    async def on_before_data_stream_connect(self) -> None:
+    async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
         self.last_order_book_update_id = -1
         self.order_book_event_buf.clear()
         async with self.http_session.post(f"{API_BASE_URL}/userDataStream") as rsp:
             await self.handle_error_response(rsp)
             listen_key = (await rsp.json()).get("listenKey")
-            self.session_params.stream_url += f"/{listen_key}"
+            params.url += f"/{listen_key}"
 
     def _get_orders_from_stream(
             self,
