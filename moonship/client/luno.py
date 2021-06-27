@@ -39,8 +39,7 @@ LUNO_MAX_DECIMALS = MAX_DECIMALS
 class LunoClient(AbstractWebClient):
     market_info: dict[str, MarketInfo] = {}
     market_info_lock = asyncio.Lock()
-    market_data_limiter = aiolimiter.AsyncLimiter(5, 1)
-    limiter = aiolimiter.AsyncLimiter(25, 1)
+    limiter = aiolimiter.AsyncLimiter(300, 60)
 
     def __init__(self, market_name: str, app_config: Config):
         key_id = app_config.get("moonship.luno.key_id")
@@ -61,7 +60,7 @@ class LunoClient(AbstractWebClient):
         async with self.market_info_lock:
             if not use_cached or self.market.symbol not in self.market_info:
                 try:
-                    async with self.market_data_limiter:
+                    async with self.limiter:
                         async with self.http_session.get(f"{EXCHANGE_API_BASE_URL}/markets") as rsp:
                             await self.handle_error_response(rsp)
                             markets = (await rsp.json()).get("markets")
@@ -82,7 +81,7 @@ class LunoClient(AbstractWebClient):
 
     async def get_ticker(self) -> Ticker:
         try:
-            async with self.market_data_limiter:
+            async with self.limiter:
                 async with self.http_session.get(f"{API_BASE_URL}/ticker", params={"pair": self.market.symbol}) as rsp:
                     await self.handle_error_response(rsp)
                     ticker = await rsp.json()
@@ -100,7 +99,7 @@ class LunoClient(AbstractWebClient):
             "pair": self.market.symbol
         }
         try:
-            async with self.market_data_limiter:
+            async with self.limiter:
                 async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
                     await self.handle_error_response(rsp)
                     trades: list[Trade] = []
