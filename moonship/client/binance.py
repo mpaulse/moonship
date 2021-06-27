@@ -42,7 +42,7 @@ class BinanceClient(AbstractWebClient):
     market_info: dict[str, MarketInfo] = {}
     market_info_lock = asyncio.Lock()
     request_weight_limiter = aiolimiter.AsyncLimiter(1200, 60)
-    order_limiter = aiolimiter.AsyncLimiter(100, 10)
+    order_limiter = aiolimiter.AsyncLimiter(50, 10)
 
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.binance.api_key")
