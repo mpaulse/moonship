@@ -405,20 +405,23 @@ class Market:
             if updated_order_details.quote_quantity == 0 and pending_order_details.quote_quantity > 0:
                 # If the get_order() call does not provide the original quote quantity
                 updated_order_details.quote_quantity = pending_order_details.quote_quantity
-            if updated_order_details.status in [
-                OrderStatus.FILLED,
-                OrderStatus.CANCELLED,
-                OrderStatus.CANCELLED_AND_PARTIALLY_FILLED,
-                OrderStatus.EXPIRED,
-                OrderStatus.REJECTED
-            ]:
-                try:
-                    del self._pending_orders[order_id]
-                except KeyError:
-                    pass
+            self._remove_completed_pending_order(updated_order_details)
             self.raise_event(OrderStatusUpdateEvent(order=updated_order_details))
             return updated_order_details
         return None
+
+    def _remove_completed_pending_order(self, order: FullOrderDetails) -> None:
+        if order.id in self._pending_orders and order.status in [
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.CANCELLED_AND_PARTIALLY_FILLED,
+            OrderStatus.EXPIRED,
+            OrderStatus.REJECTED
+        ]:
+            try:
+                del self._pending_orders[order.id]
+            except KeyError:
+                pass
 
     def subscribe(self, subscriber) -> None:
         self._subscribers.append(subscriber)
