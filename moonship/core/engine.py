@@ -139,6 +139,10 @@ class MarketManager(MarketSubscriber):
             for order_id in pending_order_ids:
                 await self.market._handle_pending_order_update(order_id)
 
+    async def on_order_status_update(self, event: OrderStatusUpdateEvent) -> None:
+        # For MarketClients capable of receiving order update stream events
+        self.market._remove_completed_pending_order(event.order)
+
 
 class TradeEngine:
 

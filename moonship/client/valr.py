@@ -252,12 +252,120 @@ class ValrClient(AbstractWebClient):
                     }
                 ]
             })
-        #  TODO: ping-pong messages every 30 seconds
+        asyncio.create_task(self._ping_data_stream(websocket))
+
+    async def _ping_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
+        while not self.closed and not websocket.closed:
+            await websocket.send_json({
+                "type": "PING"
+            })
+            await asyncio.sleep(30)
 
     async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
-        if not isinstance(msg, dict):
-            return
-        #  TODO
+        if isinstance(msg, dict):
+            event = msg.get("type")
+            data = msg.get("data")
+            if isinstance(data, dict):
+                if event == "AGGREGATED_ORDERBOOK_UPDATE":
+                    self._on_order_book_stream_event(data)
+                elif event == "NEW_TRADE":
+                    self._on_trade_stream_event(data)
+                elif event == "ORDER_STATUS_UPDATE":
+                    self._on_order_status_update(data)
+                elif event == "FAILED_CANCEL_ORDER":
+                    self._on_order_cancellation_failed(data)
+
+    def _on_order_book_stream_event(self, data: dict[str, any]) -> None:
+        bids = self._get_orders_from_stream(OrderAction.BUY, data.get("bids"))
+        asks = self._get_orders_from_stream(OrderAction.SELL, data.get("asks"))
+        if len(self.market.bids) == 0 and len(self.market.asks) == 0:
+            orders: list[LimitOrder] = []
+            for bid in bids.values():
+                orders.append(bid)
+            for ask in asks.values():
+                orders.append(ask)
+            self.market.raise_event(
+                OrderBookInitEvent(
+                    timestamp=Timestamp.now(tz=timezone.utc),
+                    orders=orders))
+        else:
+            self._update_order_book_entries(bids, self.market.bids, OrderAction.BUY)
+            self._update_order_book_entries(asks, self.market.asks, OrderAction.SELL)
+
+    def _update_order_book_entries(
+            self, orders: dict[Amount, LimitOrder], order_book_entries: OrderBookEntriesView, action: OrderAction
+    ) -> None:
+        for order in orders.values():
+            self._add_order_book_item(order, order_book_entries)
+        removed_order_ids: list[str] = []
+        for price in order_book_entries.keys():
+            if price not in orders:
+                removed_order_ids.append(self._generate_order_book_order_id(price, action))
+        for order_id in removed_order_ids:
+            self.market.raise_event(
+                OrderBookItemRemovedEvent(
+                    timestamp=Timestamp.now(tz=timezone.utc),
+                    order_id=order_id))
+
+    def _add_order_book_item(self, order: LimitOrder, order_book_entries: OrderBookEntriesView):
+        existing_order = order_book_entries.get(order.price)
+        if existing_order is None or existing_order.quantity != order.quantity:
+            self.market.raise_event(
+                OrderBookItemAddedEvent(
+                    timestamp=Timestamp.now(tz=timezone.utc),
+                    order=order))
+
+    def _get_orders_from_stream(
+            self, action: OrderAction, order_book_entries: list[dict[str, any]]
+    ) -> dict[Amount, LimitOrder]:
+        orders = dict[Amount, LimitOrder] = {}
+        if isinstance(order_book_entries, list):
+            for entry in order_book_entries:
+                price = to_amount(entry.get("price"))
+                quantity = to_amount(entry.get("quantity"))
+                order = LimitOrder(
+                    id=self._generate_order_book_order_id(price, action),
+                    action=action,
+                    price=price,
+                    quantity=quantity)
+                orders[order.price] = order
+        return orders
+
+    def _generate_order_book_order_id(self, price: Amount, action: OrderAction) -> str:
+        # The VALR order book event does not contain individual order granularity,
+        # so create mock orders with the order ID = action@price.
+        return f"{action.name}@{price}"
+
+    def _on_trade_stream_event(self, data: dict[str, any]) -> None:
+        timestamp = self._to_timestamp(data.get("tradedAt"))
+        self.market.raise_event(
+            TradeEvent(
+                timestamp=timestamp,
+                trade=Trade(
+                    timestamp=timestamp,
+                    symbol=self.market.symbol,
+                    quantity=to_amount(data.get("quantity")),
+                    price=to_amount(data.get("price")),
+                    taker_action=self._to_order_action(data.get("takerSide")))))
+
+    def _on_order_status_update(self, data: dict[str, any]) -> None:
+        quantity = to_amount(data.get("originalQuantity"))
+        self.market.raise_event(
+            OrderStatusUpdateEvent(
+                order=FullOrderDetails(
+                    id=data.get("orderId"),
+                    symbol=self.market.symbol,
+                    action=self._to_order_action(data.get("orderSide")),
+                    quantity=quantity,
+                    quantity_filled=quantity - to_amount(data.get("remainingQuantity")),
+                    limit_price=to_amount(data.get("originalPrice")),
+                    status=self._to_order_status(data),
+                    creation_timestamp=self._to_timestamp(data.get("orderCreatedAt")))))
+
+    def _on_order_cancellation_failed(self, data: dict[str, any]) -> None:
+        order_id = data.get("orderId")
+        error = data.get("message")
+        self.market.logger.warning(f"Failed to cancel order {order_id}: {error}")
 
     def _to_timestamp(self, s: Optional[str]) -> Timestamp:
         if s is not None:
