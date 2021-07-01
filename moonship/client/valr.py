@@ -121,11 +121,11 @@ class ValrClient(AbstractWebClient):
             before_id = None
             for i in range(0, limit, 100):
                 async with self.limiter:
-                    path = f"{API_VERSION}/marketdata/{self.market.symbol}/tradehistory?limit=100"
+                    path = f"/{API_VERSION}/marketdata/{self.market.symbol}/tradehistory?limit=100"
                     if before_id is not None:
                         path += f"&beforeId={before_id}"
                     async with self.http_session.get(
-                            f"{API_BASE_URL}/{path}",
+                            f"{API_BASE_URL}{path}",
                             headers=self._get_auth_headers("GET", path)) as rsp:
                         await self.handle_error_response(rsp)
                         trades_data = await rsp.json()
@@ -163,10 +163,10 @@ class ValrClient(AbstractWebClient):
                 request["quoteAmount"] = to_amount_str(order.quantity)
         request = json.dumps(request, indent=None)
         try:
-            path = f"{API_VERSION}/orders/{order_type}"
+            path = f"/{API_VERSION}/orders/{order_type}"
             async with self.limiter:
                 async with self.http_session.post(
-                        f"{API_BASE_URL}/{path}",
+                        f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("POST", path, request),
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
@@ -178,9 +178,9 @@ class ValrClient(AbstractWebClient):
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
             async with self.limiter:
-                path = f"{API_VERSION}/orders/{self.market.symbol}/orderid/{order_id}"
+                path = f"/{API_VERSION}/orders/{self.market.symbol}/orderid/{order_id}"
                 async with self.http_session.get(
-                        f"{API_BASE_URL}/{path}",
+                        f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("GET", path)) as rsp:
                     await self.handle_error_response(rsp)
                     order_data = await rsp.json()
@@ -204,10 +204,10 @@ class ValrClient(AbstractWebClient):
         }
         try:
             async with self.limiter:
-                path = f"{API_VERSION}/orders/order"
+                path = f"/{API_VERSION}/orders/order"
                 request = json.dumps(request, indent=None)
                 async with self.http_session.delete(
-                        f"{API_BASE_URL}/{path}",
+                        f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("DELETE", path, request),
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
@@ -230,7 +230,7 @@ class ValrClient(AbstractWebClient):
         }
 
     async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
-        auth_headers = self._get_auth_headers("GET", params.url[len(STREAM_BASE_URL) + 1:])
+        auth_headers = self._get_auth_headers("GET", params.url[len(STREAM_BASE_URL):])
         for name, value in auth_headers.items():
             params.headers[name] = value
 
@@ -276,8 +276,8 @@ class ValrClient(AbstractWebClient):
                     self._on_order_cancellation_failed(data)
 
     def _on_order_book_stream_event(self, data: dict[str, any]) -> None:
-        bids = self._get_orders_from_stream(OrderAction.BUY, data.get("bids"))
-        asks = self._get_orders_from_stream(OrderAction.SELL, data.get("asks"))
+        bids = self._get_orders_from_stream(OrderAction.BUY, data.get("Bids"))
+        asks = self._get_orders_from_stream(OrderAction.SELL, data.get("Asks"))
         if len(self.market.bids) == 0 and len(self.market.asks) == 0:
             orders: list[LimitOrder] = []
             for bid in bids.values():
@@ -318,7 +318,7 @@ class ValrClient(AbstractWebClient):
     def _get_orders_from_stream(
             self, action: OrderAction, order_book_entries: list[dict[str, any]]
     ) -> dict[Amount, LimitOrder]:
-        orders = dict[Amount, LimitOrder] = {}
+        orders: dict[Amount, LimitOrder] = {}
         if isinstance(order_book_entries, list):
             for entry in order_book_entries:
                 price = to_amount(entry.get("price"))

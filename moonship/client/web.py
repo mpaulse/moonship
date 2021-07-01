@@ -75,7 +75,7 @@ class AbstractWebClient(MarketClient, abc.ABC):
             trace_configs=[trace_config])
         if isinstance(self.stream_params, WebClientStreamParameters):
             asyncio.create_task(self._process_data_stream(self.stream_params))
-        elif isinstance(self.session_params, list):
+        elif isinstance(self.stream_params, list):
             for stream_params in self.stream_params:
                 asyncio.create_task(self._process_data_stream(stream_params))
 
