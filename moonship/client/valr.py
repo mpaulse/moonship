@@ -30,6 +30,7 @@ import asyncio
 import hmac
 import hashlib
 
+from dataclasses import dataclass
 from datetime import timezone
 from moonship.core import *
 from moonship.client.web import *
@@ -38,6 +39,10 @@ from typing import Optional, Union
 API_BASE_URL = "https://api.valr.com"
 API_VERSION = "v1"
 STREAM_BASE_URL = "wss://api.valr.com"
+
+@dataclass
+class ValrFullOrderDetails(FullOrderDetails):
+    failed_reason: str = None
 
 
 class ValrClient(AbstractWebClient):
@@ -171,11 +176,17 @@ class ValrClient(AbstractWebClient):
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
                     order.id = (await rsp.json()).get("id")
-                    return order.id
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
+        order_details = await self.get_order(order.id)
+        if order_details.status == OrderStatus.REJECTED:
+            error_code = MarketErrorCode.UNKNOWN
+            if "Post only cancelled" in order_details.failed_reason:
+                error_code = MarketErrorCode.POST_ONLY_ORDER_CANCELLED
+            raise MarketException("Failed to place order", self.market.name, error_code)
+        return order.id
 
-    async def get_order(self, order_id: str) -> FullOrderDetails:
+    async def get_order(self, order_id: str) -> ValrFullOrderDetails:
         try:
             async with self.limiter:
                 path = f"/{API_VERSION}/orders/{self.market.symbol}/orderid/{order_id}"
@@ -185,7 +196,7 @@ class ValrClient(AbstractWebClient):
                     await self.handle_error_response(rsp)
                     order_data = await rsp.json()
                     quantity = to_amount(order_data.get("originalQuantity"))
-                    return FullOrderDetails(
+                    return ValrFullOrderDetails(
                         id=order_id,
                         symbol=order_data.get("currencyPair"),
                         action=self._to_order_action(order_data.get("orderSide")),
@@ -193,6 +204,7 @@ class ValrClient(AbstractWebClient):
                         quantity_filled=quantity - to_amount(order_data.get("remainingQuantity")),
                         limit_price=to_amount(order_data.get("originalPrice")),
                         status=self._to_order_status(order_data),
+                        failed_reason=order_data.get("failedReason"),
                         creation_timestamp=self._to_timestamp(order_data.get("orderCreatedAt")))
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
@@ -352,7 +364,7 @@ class ValrClient(AbstractWebClient):
         quantity = to_amount(data.get("originalQuantity"))
         self.market.raise_event(
             OrderStatusUpdateEvent(
-                order=FullOrderDetails(
+                order=ValrFullOrderDetails(
                     id=data.get("orderId"),
                     symbol=self.market.symbol,
                     action=self._to_order_action(data.get("orderSide")),
@@ -360,6 +372,7 @@ class ValrClient(AbstractWebClient):
                     quantity_filled=quantity - to_amount(data.get("remainingQuantity")),
                     limit_price=to_amount(data.get("originalPrice")),
                     status=self._to_order_status(data),
+                    failed_reason=data.get("failedReason"),
                     creation_timestamp=self._to_timestamp(data.get("orderCreatedAt")))))
 
     def _on_order_cancellation_failed(self, data: dict[str, any]) -> None:
