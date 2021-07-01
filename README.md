@@ -2,7 +2,7 @@
 
 ![Moonship build status](https://github.com/mpaulse/moonship/workflows/Moonship%20build/badge.svg)
 
-Moonship is a high-frequency forex/cryptocurrency trading application that provides the
+Moonship is a high-frequency cryptocurrency trading application that provides the
 core application framework and market interfaces.
 
 Trading algorithms and strategies are implemented as plugins and are proprietary.
