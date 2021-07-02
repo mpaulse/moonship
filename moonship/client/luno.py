@@ -42,18 +42,18 @@ class LunoClient(AbstractWebClient):
     limiter = aiolimiter.AsyncLimiter(300, 60)
 
     def __init__(self, market_name: str, app_config: Config):
-        key_id = app_config.get("moonship.luno.key_id")
-        if not isinstance(key_id, str):
-            raise StartUpException("Luno API key ID not configured")
-        key_secret = app_config.get("moonship.luno.key_secret")
-        if not isinstance(key_secret, str):
-            raise StartUpException("Luno API key secret not configured")
+        api_key = app_config.get("moonship.luno.api_key")
+        if not isinstance(api_key, str):
+            raise StartUpException("Luno API key not configured")
+        api_secret = app_config.get("moonship.luno.api_secret")
+        if not isinstance(api_secret, str):
+            raise StartUpException("Luno API secret not configured")
         self.data_stream_seq_num = -1
         super().__init__(
             market_name,
             app_config,
             WebClientSessionParameters(
-                auth=aiohttp.BasicAuth(key_id, key_secret)),
+                auth=aiohttp.BasicAuth(api_key, api_secret)),
             WebClientStreamParameters(
                 url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}"))
 

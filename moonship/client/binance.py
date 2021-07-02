@@ -48,9 +48,9 @@ class BinanceClient(AbstractWebClient):
         api_key = app_config.get("moonship.binance.api_key")
         if not isinstance(api_key, str):
             raise StartUpException("Binance API key not configured")
-        self.secret_key = app_config.get("moonship.binance.secret_key")
-        if not isinstance(self.secret_key, str):
-            raise StartUpException("Binance secret key not configured")
+        self.api_secret = app_config.get("moonship.binance.api_secret")
+        if not isinstance(self.api_secret, str):
+            raise StartUpException("Binance API secret not configured")
         self.last_order_book_update_id = -1
         self.order_book_event_buf: list[dict] = []
         self.order_details_cache: dict[str, FullOrderDetails] = {}
@@ -246,7 +246,7 @@ class BinanceClient(AbstractWebClient):
     def _url_encode_and_sign(self, data: dict) -> str:
         params = urllib.parse.urlencode(data, encoding="utf-8")
         signature = hmac.new(
-            bytes(self.secret_key, encoding="utf-8"),
+            bytes(self.api_secret, encoding="utf-8"),
             bytes(params, encoding="utf-8"),
             hashlib.sha256).hexdigest()
         return f"{params}&signature={signature}"
