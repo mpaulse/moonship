@@ -59,6 +59,7 @@ class ValrClient(AbstractWebClient):
         if not isinstance(self.api_secret, str):
             raise StartUpException("VALR API secret not configured")
         headers = {"X-VALR-API-KEY": api_key}
+        self.async_tasks: list[asyncio.Task] = []
         super().__init__(
             market_name,
             app_config,
@@ -67,6 +68,11 @@ class ValrClient(AbstractWebClient):
                 WebClientStreamParameters(url=f"{STREAM_BASE_URL}/ws/account", headers=headers),
                 WebClientStreamParameters(url=f"{STREAM_BASE_URL}/ws/trade", headers=headers)
             ])
+
+    async def close(self) -> None:
+        await super().close()
+        for task in self.async_tasks:
+            task.cancel()
 
     async def get_market_info(self, use_cached=True) -> MarketInfo:
         async with self.market_info_lock:
@@ -177,12 +183,10 @@ class ValrClient(AbstractWebClient):
                     await self.handle_error_response(rsp)
                     order.id = (await rsp.json()).get("id")
         except Exception as e:
-            raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
+            raise MarketException("Failed to place order", self.market.name) from e
         order_details = await self.get_order(order.id)
         if order_details.status == OrderStatus.REJECTED:
-            error_code = MarketErrorCode.UNKNOWN
-            if "Post only cancelled" in order_details.failed_reason:
-                error_code = MarketErrorCode.POST_ONLY_ORDER_CANCELLED
+            error_code = self._get_error_code(order_details.failed_reason)
             raise MarketException("Failed to place order", self.market.name, error_code)
         return order.id
 
@@ -264,7 +268,7 @@ class ValrClient(AbstractWebClient):
                     }
                 ]
             })
-        asyncio.create_task(self._ping_data_stream(websocket))
+        self.async_tasks.append(asyncio.create_task(self._ping_data_stream(websocket)))
 
     async def _ping_data_stream(self, websocket: aiohttp.ClientWebSocketResponse) -> None:
         while not self.closed and not websocket.closed:
@@ -409,6 +413,10 @@ class ValrClient(AbstractWebClient):
             return OrderStatus.FILLED
         return OrderStatus.PENDING
 
-    def _get_error_code(self, e: Exception) -> MarketErrorCode:
-        # TODO: if isinstance(e, HttpResponseException) and isinstance(e.body, dict)
+    def _get_error_code(self, failed_reason: str) -> MarketErrorCode:
+        failed_reason = failed_reason.lower()
+        if failed_reason.startswith("post only cancelled"):
+            return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
+        elif failed_reason.startswith("insufficient balance"):
+            return MarketErrorCode.INSUFFICIENT_FUNDS
         return MarketErrorCode.UNKNOWN
