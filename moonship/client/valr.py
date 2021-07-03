@@ -184,8 +184,16 @@ class ValrClient(AbstractWebClient):
                     order.id = (await rsp.json()).get("id")
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name) from e
-        order_details = await self.get_order(order.id)
-        if order_details.status == OrderStatus.REJECTED:
+        order_details = None
+        try:
+            order_details = await self.get_order(order.id)
+        except Exception as e:
+            # Sometimes get a HTTP status code 400 with message "Invalid order" when retrieving
+            # the order details, even through the order has been successfully placed. Assume the
+            # order is pending.
+            self.logger.exception(f"Failed to confirm placement of order: {order.id}", exc_info=e)
+        if order_details is not None and order_details.status == OrderStatus.REJECTED:
+            self.logger.warning(f"Order failed: {order_details.failed_reason}")
             error_code = self._get_error_code(order_details.failed_reason)
             raise MarketException("Failed to place order", self.market.name, error_code)
         return order.id
