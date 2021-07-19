@@ -184,6 +184,7 @@ class ValrClient(AbstractWebClient):
                     order.id = (await rsp.json()).get("id")
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name) from e
+        await asyncio.sleep(1)
         order_details = None
         try:
             order_details = await self.get_order(order.id)
@@ -193,7 +194,6 @@ class ValrClient(AbstractWebClient):
             # order is pending.
             self.logger.exception(f"Failed to confirm placement of order: {order.id}", exc_info=e)
         if order_details is not None and order_details.status == OrderStatus.REJECTED:
-            self.logger.warning(f"Order failed: {order_details.failed_reason}")
             error_code = self._get_error_code(order_details.failed_reason)
             raise MarketException("Failed to place order", self.market.name, error_code)
         return order.id
@@ -373,18 +373,23 @@ class ValrClient(AbstractWebClient):
                     taker_action=self._to_order_action(data.get("takerSide")))))
 
     def _on_order_status_update(self, data: dict[str, any]) -> None:
+        order_id = data.get("orderId")
         quantity = to_amount(data.get("originalQuantity"))
+        status = self._to_order_status(data)
+        failed_reason = data.get("failedReason")
+        if status == OrderStatus.REJECTED:
+            self.logger.warning(f"Order {order_id} failed: {failed_reason}")
         self.market.raise_event(
             OrderStatusUpdateEvent(
                 order=ValrFullOrderDetails(
-                    id=data.get("orderId"),
+                    id=order_id,
                     symbol=self.market.symbol,
                     action=self._to_order_action(data.get("orderSide")),
                     quantity=quantity,
                     quantity_filled=quantity - to_amount(data.get("remainingQuantity")),
                     limit_price=to_amount(data.get("originalPrice")),
-                    status=self._to_order_status(data),
-                    failed_reason=data.get("failedReason"),
+                    status=status,
+                    failed_reason=failed_reason,
                     creation_timestamp=self._to_timestamp(data.get("orderCreatedAt")))))
 
     def _on_order_cancellation_failed(self, data: dict[str, any]) -> None:
