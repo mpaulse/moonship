@@ -184,12 +184,12 @@ class RedisMessageBus(MessageBus):
 
     async def publish(self, msg: any, channel_name: str) -> None:
         await redis.publish(channel_name, msg)
-        logger.debug(f"Message published: [${channel_name}] ${msg}")
+        logger.debug(f"Message published: [{channel_name}] {msg}")
 
     async def _listen(self) -> None:
         try:
             async for msg in self.pubsub.listen():
-                logger.debug(f"Message received: [${msg['channel']}] ${msg['data']}")
+                logger.debug(f"Message received: [{msg['channel']}] {msg['data']}")
                 handler = self.channel_handlers.get(msg["channel"])
                 if handler is not None:
                     await handler(msg["data"], msg["channel"])

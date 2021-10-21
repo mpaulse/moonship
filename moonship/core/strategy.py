@@ -75,7 +75,7 @@ class Strategy:
         auto_start = app_config.get(f"moonship.strategies.{self.name}.auto_start")
         if isinstance(auto_start, bool):
             self._auto_start = auto_start
-        self._algo.init_config(config)
+        self._algo.init_config(app_config)
 
     async def start(self) -> None:
         start_time = utc_timestamp_now_msec()
