@@ -158,9 +158,11 @@ class TradingEngine(Service):
         self.name = config.get("moonship.engine.name")
         if not isinstance(self.name, str):
             self.name = DEFAULT_ENGINE_NAME
+        self.shared_cache: Optional[SharedCache] = None
+        self.message_bus: Optional[MessageBus] = None
         if config.get("moonship.redis") is not None:
-            self.shared_cache: SharedCache = RedisSharedCache(config)
-            self.message_bus: MessageBus = RedisMessageBus(config)
+            self.shared_cache = RedisSharedCache(config)
+            self.message_bus = RedisMessageBus(config)
         self._init_markets(config)
         self._init_strategies(config)
 
