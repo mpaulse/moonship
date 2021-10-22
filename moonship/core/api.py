@@ -55,6 +55,35 @@ class APIService(Service):
         self.password = password.encode("utf-8")
         self.web_app_runner: Optional[aiohttp.web.AppRunner] = None
         self.session_store: Optional[RedisSessionStore] = None
+        self.shared_cache = RedisSharedCache(config)
+        self.message_bus = RedisMessageBus(config)
+
+    async def start(self) -> None:
+        await self.message_bus.start()
+        web_app = aiohttp.web.Application(middlewares=[self.handle_error], logger=logger)
+        web_app.add_routes([
+            aiohttp.web.post("/login", self.post_login),
+            aiohttp.web.get("/logout", self.get_logout),
+            aiohttp.web.get("/engines", self.get_engines),
+            aiohttp.web.get("/{engine}/strategies/{strategy}", self.get_strategy)
+        ])
+        web_app.on_response_prepare.append(self.on_prepare_response)
+        self.session_store = RedisSessionStore(self.config)
+        aiohttp_session.setup(web_app, self.session_store)
+        web_app.middlewares.append(self.verify_session)
+        self.web_app_runner = aiohttp.web.AppRunner(web_app, logger=logger, access_log=logger)
+        await self.web_app_runner.setup()
+        site = aiohttp.web.TCPSite(self.web_app_runner, port=self.port, ssl_context=self.ssl_context)
+        await site.start()
+        logger.info(f"Listening on port {self.port}")
+
+    async def stop(self) -> None:
+        if self.session_store is not None:
+            await self.session_store.close()
+        if self.web_app_runner is not None:
+            await self.web_app_runner.cleanup()
+        await self.message_bus.close()
+        await self.shared_cache.close()
 
     async def post_login(self, req: Request) -> StreamResponse:
         try:
@@ -84,13 +113,32 @@ class APIService(Service):
         return self._ok()
 
     async def get_engines(self, req: Request) -> StreamResponse:
-        pass
+        engines = []
+        engine_names = await self.shared_cache.set_elements("engines")
+        for engine_name in engine_names:
+            engine: dict[str, any] = await self.shared_cache.map_entries(engine_name)
+            engine["name"] = engine_name
+            engine["strategies"] = list(await self.shared_cache.set_elements(f"{engine_name}.strategies"))
+            engines.append(engine)
+        return self._ok({"engines": engines})
 
     async def get_strategy(self, req: Request) -> StreamResponse:
-        pass
+        engine_name = req.match_info["engine"]
+        strategy_name = req.match_info["strategy"]
+        key = f"{engine_name}.{strategy_name}"
+        strategy: dict[str, any] = await self.shared_cache.map_entries(key)
+        if len(strategy) == 0:
+            return self._not_found("No such strategy")
+        strategy["name"] = strategy_name
+        strategy["engine"] = engine_name
+        strategy["config"] = await self.shared_cache.map_entries(f"{key}.config")
+        markets = strategy["config"].get("markets")
+        if isinstance(markets, str):
+            strategy["config"]["markets"] = markets.split(",")
+        return self._ok(strategy)
 
-    async def get_strategy_config(self, req: Request) -> StreamResponse:
-        pass
+    async def on_prepare_response(self, req: Request, rsp: StreamResponse) -> None:
+        rsp.headers["Server"] = "Moonship"
 
     @aiohttp.web.middleware
     async def verify_session(
@@ -130,6 +178,9 @@ class APIService(Service):
     def _unauthorized(self, error_title: str) -> Response:
         return self._error_response("access", error_title, 401)
 
+    def _not_found(self, error_title: str) -> Response:
+        return self._error_response("resource", error_title, 404)
+
     def _error_response(self, type: str, title: str, status: int) -> Response:
         return aiohttp.web.json_response(
             {
@@ -159,30 +210,3 @@ class APIService(Service):
             ssl_context.load_cert_chain(ssl_cert, ssl_key)
         return ssl_context
 
-    async def start(self) -> None:
-        web_app = aiohttp.web.Application(middlewares=[self.handle_error], logger=logger)
-        web_app.add_routes([
-            aiohttp.web.post("/login", self.post_login),
-            aiohttp.web.get("/logout", self.get_logout),
-            aiohttp.web.get("/engines", self.get_engines),
-            aiohttp.web.get("/{engine}/strategies/{strategy}", self.get_strategy),
-            aiohttp.web.get("/{engine}/strategies/{strategy}/config", self.get_strategy_config)
-        ])
-        web_app.on_response_prepare.append(self.on_prepare_response)
-        self.session_store = RedisSessionStore(self.config)
-        aiohttp_session.setup(web_app, self.session_store)
-        web_app.middlewares.append(self.verify_session)
-        self.web_app_runner = aiohttp.web.AppRunner(web_app, logger=logger, access_log=logger)
-        await self.web_app_runner.setup()
-        site = aiohttp.web.TCPSite(self.web_app_runner, port=self.port, ssl_context=self.ssl_context)
-        await site.start()
-        logger.info(f"Listening on port {self.port}")
-
-    async def stop(self) -> None:
-        if self.session_store is not None:
-            await self.session_store.close()
-        if self.web_app_runner is not None:
-            await self.web_app_runner.cleanup()
-
-    async def on_prepare_response(self, req: Request, rsp: StreamResponse) -> None:
-        rsp.headers["Server"] = "Moonship"

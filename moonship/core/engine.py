@@ -274,7 +274,7 @@ class TradingEngine(Service):
                 self._flatten_dict(v, result, f"{k}.")
             elif isinstance(v, list):
                 s = io.StringIO()
-                print(*v, sep=", ", file=s)
+                print(*v, sep=",", end="", file=s)
                 result[f"{key_prefix}{k}"] = s.getvalue()
             else:
                 result[f"{key_prefix}{k}"] = str(v)

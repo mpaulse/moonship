@@ -228,7 +228,6 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
         else:
             storage_key = self._storage_key(session_id)
             session_save_data = await self.shared_cache.map_entries(storage_key)
-            logger.debug(session_save_data)
             if session_save_data is None or len(session_save_data) == 0:
                 return aiohttp_session.Session(None, data=None, new=True, max_age=self.max_age)
             if self.max_age is not None:
