@@ -88,10 +88,10 @@ class Strategy:
 
     async def stop(self) -> None:
         if self._running:
-            for market in self.markets.values():
-                market.unsubscribe(self._algo)
             self._running = False
             await self._algo.on_stopped()
+            for market in self.markets.values():
+                market.unsubscribe(self._algo)
             await self.update_shared_cache({"running": "false", "start_time": "0"})
 
     async def update_shared_cache(self, data: dict[str, str]) -> None:
