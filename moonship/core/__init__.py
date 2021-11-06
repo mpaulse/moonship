@@ -22,7 +22,7 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "1.2.dev3"
+__version__ = "1.2.dev4"
 
 from moonship.core.config import *
 from moonship.core.data import *
