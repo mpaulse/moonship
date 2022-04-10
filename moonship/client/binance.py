@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2022, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -154,13 +154,14 @@ class BinanceClient(AbstractWebClient):
             "type": "MARKET" if isinstance(order, MarketOrder)
             else "LIMIT_MAKER" if order.post_only
             else "LIMIT",
-            "timeInForce": "GTC",
             "newOrderRespType": "ACK",
             "timestamp": utc_timestamp_now_msec()
         }
         if isinstance(order, LimitOrder):
             request["price"] = to_amount_str(order.price)
             request["quantity"] = to_amount_str(order.quantity)
+            if not order.post_only:
+                request["timeInForce"] = "GTC"
         else:
             if order.is_base_quantity:
                 request["quantity"] = to_amount_str(order.quantity)
