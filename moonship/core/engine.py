@@ -35,7 +35,7 @@ from moonship.core.service import *
 from moonship.core.strategy import Strategy
 from typing import Optional
 
-MAX_RECENT_TRADE_LIST_SIZE = 1_000_000
+MAX_RECENT_TRADE_LIST_SIZE = 100_000
 DEFAULT_ENGINE_NAME = "engine"
 
 logger = logging.getLogger(__name__)
