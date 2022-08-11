@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2022, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -338,7 +338,7 @@ class Market:
             raise MarketException(f"Market closed", self.name)
         return await self._client.get_ticker()
 
-    async def get_recent_trades(self, limit=100) -> list[Trade]:
+    async def get_recent_trades(self, limit=1000) -> list[Trade]:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         return await self._client.get_recent_trades(limit)

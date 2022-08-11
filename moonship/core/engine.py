@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2022, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -35,7 +35,7 @@ from moonship.core.service import *
 from moonship.core.strategy import Strategy
 from typing import Optional
 
-RECENT_TRADE_LIST_LIMIT = 1000
+MAX_RECENT_TRADE_LIST_SIZE = 1_000_000
 DEFAULT_ENGINE_NAME = "engine"
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ class MarketManager(MarketSubscriber):
                 ticker=ticker))
 
     async def _init_recent_trade_list(self) -> None:
-        trades = await self.market.get_recent_trades(limit=RECENT_TRADE_LIST_LIMIT)
+        trades = await self.market.get_recent_trades()
         for trade in trades:
             self._add_trade(trade)
 
@@ -81,7 +81,7 @@ class MarketManager(MarketSubscriber):
         self.market._quote_asset_precision = info.quote_asset_precision
 
     def _add_trade(self, trade: Trade) -> None:
-        if len(self.market._recent_trades) >= RECENT_TRADE_LIST_LIMIT:
+        if len(self.market._recent_trades) >= MAX_RECENT_TRADE_LIST_SIZE:
             self.market._recent_trades.pop(0)
         self.market._recent_trades.add(trade)
 
