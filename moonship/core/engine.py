@@ -35,7 +35,7 @@ from moonship.core.service import *
 from moonship.core.strategy import Strategy
 from typing import Optional
 
-MAX_RECENT_TRADE_LIST_SIZE = 100_000
+DEFAULT_MAX_RECENT_TRADE_LIST_SIZE = 10_000
 DEFAULT_ENGINE_NAME = "engine"
 
 logger = logging.getLogger(__name__)
@@ -43,8 +43,9 @@ logger = logging.getLogger(__name__)
 
 class MarketManager(MarketSubscriber):
 
-    def __init__(self, market: Market) -> None:
+    def __init__(self, market: Market, max_recent_trade_list_size: int) -> None:
         self.market = market
+        self.max_recent_trade_list_size = max_recent_trade_list_size
         self.market.subscribe(self)
 
     async def open(self) -> None:
@@ -81,7 +82,7 @@ class MarketManager(MarketSubscriber):
         self.market._quote_asset_precision = info.quote_asset_precision
 
     def _add_trade(self, trade: Trade) -> None:
-        if len(self.market._recent_trades) >= MAX_RECENT_TRADE_LIST_SIZE:
+        if len(self.market._recent_trades) >= self.max_recent_trade_list_size:
             self.market._recent_trades.pop(0)
         self.market._recent_trades.add(trade)
 
@@ -176,7 +177,10 @@ class TradingEngine(Service):
                 raise StartUpException(f"No symbol configured for {market_name} market")
             cls = self._load_class("client", market_config, MarketClient)
             client = cls(market_name, config)
-            self.markets[market_name] = MarketManager(Market(market_name, symbol, client))
+            max_recent_trade_list_size = market_config.get("max_recent_trade_list_size")
+            if not isinstance(max_recent_trade_list_size, int):
+                max_recent_trade_list_size = DEFAULT_MAX_RECENT_TRADE_LIST_SIZE
+            self.markets[market_name] = MarketManager(Market(market_name, symbol, client), max_recent_trade_list_size)
 
     def _init_strategies(self, config: Config) -> None:
         strategies_config = config.get("moonship.strategies")
