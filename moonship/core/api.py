@@ -52,6 +52,9 @@ class APIService(Service):
         password = config.get("moonship.api.password")
         if not isinstance(password, str):
             raise StartUpException("No API password configured")
+        self.access_log_format = config.get("moonship.api.access_log_format")
+        if not isinstance(self.access_log_format, str):
+            self.access_log_format = '%a %t "%r" %s %b "%{Referer}i" "%{User-Agent}i'
         self.password = password.encode("utf-8")
         self.web_app_runner: Optional[aiohttp.web.AppRunner] = None
         self.session_store: Optional[RedisSessionStore] = None
@@ -71,7 +74,11 @@ class APIService(Service):
         self.session_store = RedisSessionStore(self.config)
         aiohttp_session.setup(web_app, self.session_store)
         web_app.middlewares.append(self.verify_session)
-        self.web_app_runner = aiohttp.web.AppRunner(web_app, logger=logger, access_log=logger)
+        self.web_app_runner = aiohttp.web.AppRunner(
+            web_app,
+            logger=logger,
+            access_log=logger,
+            access_log_format=self.access_log_format)
         await self.web_app_runner.setup()
         site = aiohttp.web.TCPSite(self.web_app_runner, port=self.port, ssl_context=self.ssl_context)
         await site.start()
