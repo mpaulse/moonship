@@ -7,9 +7,9 @@ name = "pypi"
 aiohttp = "*"
 aiohttp_session = { version = "*", extras = ["aioredis"] }
 aiolimiter = "*"
-aioredis = "*"
 bcrypt = "*"
 pyyaml = "*"
+redis = "*"
 sortedcontainers = "*"
 
 [dev-packages]

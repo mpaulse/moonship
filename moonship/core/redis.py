@@ -24,10 +24,10 @@
 
 import aiohttp.web
 import aiohttp_session
-import aioredis
 import asyncio
 import logging
 import os
+import redis.asyncio as aioredis
 
 from moonship.core import *
 from moonship.core.ipc import *
