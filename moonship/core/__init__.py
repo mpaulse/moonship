@@ -1,4 +1,4 @@
-#  Copyright (c) 2022, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -22,7 +22,7 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-__version__ = "1.2.dev10"
+__version__ = "1.2.dev11"
 
 from moonship.core.config import *
 from moonship.core.data import *

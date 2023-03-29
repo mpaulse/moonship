@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -62,6 +62,7 @@ class APIService(Service):
         self.message_bus = RedisMessageBus(config)
 
     async def start(self) -> None:
+        await self.shared_cache.open()
         await self.message_bus.start()
         web_app = aiohttp.web.Application(middlewares=[self.handle_error], logger=logger)
         web_app.add_routes([
@@ -72,6 +73,7 @@ class APIService(Service):
         ])
         web_app.on_response_prepare.append(self.on_prepare_response)
         self.session_store = RedisSessionStore(self.config)
+        await self.session_store.open()
         aiohttp_session.setup(web_app, self.session_store)
         web_app.middlewares.append(self.verify_session)
         self.web_app_runner = aiohttp.web.AppRunner(
@@ -121,24 +123,24 @@ class APIService(Service):
 
     async def get_engines(self, req: Request) -> StreamResponse:
         engines = []
-        engine_names = await self.shared_cache.set_elements("engines")
+        engine_names = await self.shared_cache.set_get_elements("engines")
         for engine_name in engine_names:
-            engine: dict[str, any] = await self.shared_cache.map_entries(engine_name)
+            engine: dict[str, any] = await self.shared_cache.map_get_entries(engine_name)
             engine["name"] = engine_name
-            engine["strategies"] = list(await self.shared_cache.set_elements(f"{engine_name}.strategies"))
+            engine["strategies"] = list(await self.shared_cache.set_get_elements(f"{engine_name}.strategies"))
             engines.append(engine)
         return self._ok({"engines": engines})
 
     async def get_strategy(self, req: Request) -> StreamResponse:
         engine_name = req.match_info["engine"]
         strategy_name = req.match_info["strategy"]
-        key = f"{engine_name}.{strategy_name}"
-        strategy: dict[str, any] = await self.shared_cache.map_entries(key)
+        key = f"{engine_name}.strategies.{strategy_name}"
+        strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
         if len(strategy) == 0:
             return self._not_found("No such strategy")
         strategy["name"] = strategy_name
         strategy["engine"] = engine_name
-        strategy["config"] = await self.shared_cache.map_entries(f"{key}.config")
+        strategy["config"] = await self.shared_cache.map_get_entries(f"{key}.config")
         markets = strategy["config"].get("markets")
         if isinstance(markets, str):
             strategy["config"]["markets"] = markets.split(",")

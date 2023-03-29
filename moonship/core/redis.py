@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@ redis_ref_count = 0
 logger = logging.getLogger(__name__)
 
 
-def init_redis(config: Config) -> aioredis.Redis:
+async def init_redis(config: Config) -> aioredis.Redis:
     global redis, redis_ref_count
     if redis is None:
         url = config.get("moonship.redis.url")
@@ -66,7 +66,7 @@ def init_redis(config: Config) -> aioredis.Redis:
             ssl_verify_cert = config.get("moonship.redis.ssl_verify_cert", default=True)
             options["ssl_cert_reqs"] = "required" if ssl_verify_cert else None
             options["ssl_check_hostname"] = ssl_verify_cert
-        redis = aioredis.from_url(url, **options)
+        redis = await aioredis.from_url(url, **options)
     redis_ref_count += 1
     return redis
 
@@ -116,7 +116,9 @@ class RedisSharedCache(SharedCache):
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
-        init_redis(config)
+
+    async def open(self) -> None:
+        await init_redis(self.config)
 
     async def close(self) -> None:
         await close_redis()
@@ -127,7 +129,7 @@ class RedisSharedCache(SharedCache):
     async def set_remove(self, storage_key: str, element: str) -> None:
         await redis.srem(f"{STORAGE_KEY_PREFIX}{storage_key}", element)
 
-    async def set_elements(self, storage_key: str) -> set[str]:
+    async def set_get_elements(self, storage_key: str) -> set[str]:
         return await redis.smembers(f"{STORAGE_KEY_PREFIX}{storage_key}")
 
     async def map_put(self, storage_key: str, entries: dict[str, str], append=True) -> None:
@@ -143,7 +145,7 @@ class RedisSharedCache(SharedCache):
     async def map_get(self, storage_key: str, key: str) -> str:
         return await redis.hget(f"{STORAGE_KEY_PREFIX}{storage_key}", key)
 
-    async def map_entries(self, storage_key: str) -> dict[str, str]:
+    async def map_get_entries(self, storage_key: str) -> dict[str, str]:
         return await redis.hgetall(f"{STORAGE_KEY_PREFIX}{storage_key}")
 
     async def delete(self, storage_key: str) -> None:
@@ -160,12 +162,13 @@ class RedisMessageBus(MessageBus):
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
-        init_redis(config)
         self.channel_handlers = {}
-        self.pubsub = redis.pubsub(ignore_subscribe_messages=True)
-        self.listen_task: asyncio.Task = None
+        self.pubsub: Optional[aioredis.client.PubSub] = None
+        self.listen_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
+        await init_redis(self.config)
+        self.pubsub = redis.pubsub(ignore_subscribe_messages=True)
         self.listen_task = asyncio.create_task(self._listen())
 
     async def close(self) -> None:
@@ -210,6 +213,9 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
         self.cookie_params["samesite"] = "Strict"
         self.shared_cache = RedisSharedCache(config)
 
+    async def open(self) -> None:
+        await self.shared_cache.open()
+
     async def close(self) -> None:
         await self.shared_cache.close()
 
@@ -227,7 +233,7 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
             return aiohttp_session.Session(None, data=None, new=True, max_age=self.max_age)
         else:
             storage_key = self._storage_key(session_id)
-            session_save_data = await self.shared_cache.map_entries(storage_key)
+            session_save_data = await self.shared_cache.map_get_entries(storage_key)
             if session_save_data is None or len(session_save_data) == 0:
                 return aiohttp_session.Session(None, data=None, new=True, max_age=self.max_age)
             if self.max_age is not None:

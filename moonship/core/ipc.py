@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -64,6 +64,9 @@ class SharedCacheBulkOp(abc.ABC):
 class SharedCache(abc.ABC):
 
     def __init__(self, config: Config) -> None:
+        self.config = config
+
+    async def open(self) -> None:
         pass
 
     async def close(self) -> None:
@@ -78,7 +81,7 @@ class SharedCache(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def set_elements(self, storage_key: str) -> set[str]:
+    async def set_get_elements(self, storage_key: str) -> set[str]:
         pass
 
     @abc.abstractmethod
@@ -90,7 +93,7 @@ class SharedCache(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def map_entries(self, storage_key: str) -> dict[str, str]:
+    async def map_get_entries(self, storage_key: str) -> dict[str, str]:
         pass
 
     @abc.abstractmethod
@@ -109,6 +112,7 @@ class SharedCache(abc.ABC):
 class MessageBus(abc.ABC):
 
     def __init__(self, config: Config) -> None:
+        self.config = config
         pass
 
     async def start(self) -> None:

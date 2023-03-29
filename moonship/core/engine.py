@@ -1,4 +1,4 @@
-#  Copyright (c) 2022, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -207,11 +207,10 @@ class TradingEngine(Service):
 
     async def start(self) -> None:
         start_time = utc_timestamp_now_msec()
-        if self.message_bus is not None:
-            await self.message_bus.start()
         if self.shared_cache is not None:
+            await self.shared_cache.open()
             if self.name == DEFAULT_ENGINE_NAME:
-                engines = await self.shared_cache.set_elements("engines")
+                engines = await self.shared_cache.set_get_elements("engines")
                 if self.name in engines:
                     for k in range(2, len(engines) + 2):
                         n = f"{DEFAULT_ENGINE_NAME}{k}"
@@ -223,11 +222,13 @@ class TradingEngine(Service):
                 .map_put(self.name, {"start_time": str(start_time)})
             for strategy_name in self.strategies.keys():
                 b.set_add(f"{self.name}.strategies", strategy_name)
-                b.map_put(f"{self.name}.{strategy_name}", {"running": "false"})
+                b.map_put(f"{self.name}.strategies.{strategy_name}", {"running": "false"})
                 strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
                 if isinstance(strategy_config, Config):
-                    b.map_put(f"{self.name}.{strategy_name}.config", self._flatten_dict(strategy_config.dict))
+                    b.map_put(f"{self.name}.strategies.{strategy_name}.config", self._flatten_dict(strategy_config.dict))
             await b.execute()
+        if self.message_bus is not None:
+            await self.message_bus.start()
         for strategy in self.strategies.values():
             strategy.init_config(self.config)
             if strategy.auto_start:
@@ -259,8 +260,8 @@ class TradingEngine(Service):
                 .delete(f"{self.name}.strategies") \
                 .delete(self.name)
             for strategy_name in self.strategies.keys():
-                b.delete(f"{self.name}.{strategy_name}")
-                b.delete(f"{self.name}.{strategy_name}.config")
+                b.delete(f"{self.name}.strategies.{strategy_name}")
+                b.delete(f"{self.name}.strategies.{strategy_name}.config")
             await b.execute()
             await self.shared_cache.close()
 

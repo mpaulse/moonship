@@ -97,7 +97,7 @@ class Strategy:
     async def update_shared_cache(self, data: dict[str, str]) -> None:
         if self._shared_cache is not None:
             try:
-                await self._shared_cache.map_put(f"{self._engine_name}.{self.name}", data)
+                await self._shared_cache.map_put(f"{self._engine_name}.strategies.{self.name}", data)
             except Exception as e:
                 self.logger.exception("Failed to update shared cache", exc_info=e)
 
