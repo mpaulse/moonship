@@ -222,7 +222,7 @@ class TradingEngine(Service):
                 .map_put(self.name, {"start_time": str(start_time)})
             for strategy_name in self.strategies.keys():
                 b.set_add(f"{self.name}.strategies", strategy_name)
-                b.map_put(f"{self.name}.strategies.{strategy_name}", {"running": "false"})
+                b.map_put(f"{self.name}.strategies.{strategy_name}", {"active": "false"})
                 strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
                 if isinstance(strategy_config, Config):
                     b.map_put(f"{self.name}.strategies.{strategy_name}.config", self._flatten_dict(strategy_config.dict))
@@ -267,7 +267,7 @@ class TradingEngine(Service):
 
     async def stop_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
-        if strategy is not None and strategy.running:
+        if strategy is not None and strategy.active:
             await strategy.stop()
             logger.info(f"Stopped {strategy.name} strategy")
 

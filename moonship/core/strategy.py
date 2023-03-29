@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -47,7 +47,7 @@ class Strategy:
         self._markets = markets
         self._shared_cache = shared_cache
         self._logger = logging.getLogger(f"moonship.strategy.{name}")
-        self._running = False
+        self._active = False
         self._auto_start = False
         self._algo = algo_class(self)
 
@@ -64,8 +64,8 @@ class Strategy:
         return self._logger
 
     @property
-    def running(self) -> bool:
-        return self._running
+    def active(self) -> bool:
+        return self._active
 
     @property
     def auto_start(self) -> bool:
@@ -79,20 +79,20 @@ class Strategy:
 
     async def start(self) -> None:
         start_time = utc_timestamp_now_msec()
-        if not self._running:
+        if not self._active:
             for market in self._markets.values():
                 market.subscribe(self._algo)
-            self._running = True
+            self._active = True
             await self._algo.on_started()
-            await self.update_shared_cache({"running": "true", "start_time": str(start_time)})
+            await self.update_shared_cache({"active": "true", "start_time": str(start_time)})
 
     async def stop(self) -> None:
-        if self._running:
-            self._running = False
+        if self._active:
+            self._active = False
             await self._algo.on_stopped()
             for market in self.markets.values():
                 market.unsubscribe(self._algo)
-            await self.update_shared_cache({"running": "false", "start_time": "0"})
+            await self.update_shared_cache({"active": "false", "start_time": "0"})
 
     async def update_shared_cache(self, data: dict[str, str]) -> None:
         if self._shared_cache is not None:

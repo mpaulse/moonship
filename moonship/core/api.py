@@ -68,8 +68,8 @@ class APIService(Service):
         web_app.add_routes([
             aiohttp.web.post("/login", self.post_login),
             aiohttp.web.get("/logout", self.get_logout),
-            aiohttp.web.get("/engines", self.get_engines),
-            aiohttp.web.get("/{engine}/strategies/{strategy}", self.get_strategy)
+            aiohttp.web.get("/strategies", self.get_strategies),
+            aiohttp.web.get("/strategies/{engine}/{strategy}", self.get_strategy)
         ])
         web_app.on_response_prepare.append(self.on_prepare_response)
         self.session_store = RedisSessionStore(self.config)
@@ -121,30 +121,33 @@ class APIService(Service):
         session.invalidate()
         return self._ok()
 
-    async def get_engines(self, req: Request) -> StreamResponse:
-        engines = []
-        engine_names = await self.shared_cache.set_get_elements("engines")
-        for engine_name in engine_names:
-            engine: dict[str, any] = await self.shared_cache.map_get_entries(engine_name)
-            engine["name"] = engine_name
-            engine["strategies"] = list(await self.shared_cache.set_get_elements(f"{engine_name}.strategies"))
-            engines.append(engine)
-        return self._ok({"engines": engines})
+    async def get_strategies(self, req: Request) -> StreamResponse:
+        strategies = []
+        for engine in list(await self.shared_cache.set_get_elements("engines")):
+            for name in list(await self.shared_cache.set_get_elements(f"{engine}.strategies")):
+                strategy = await self._get_strategy(name, engine)
+                if strategy is not None:
+                    strategies.append(strategy)
+        return self._ok({"strategies": strategies})
 
     async def get_strategy(self, req: Request) -> StreamResponse:
-        engine_name = req.match_info["engine"]
-        strategy_name = req.match_info["strategy"]
-        key = f"{engine_name}.strategies.{strategy_name}"
+        strategy = await self._get_strategy(req.match_info["strategy"], req.match_info["engine"])
+        if strategy is None:
+            return self._not_found("No such strategy")
+        return self._ok(strategy)
+
+    async def _get_strategy(self, name: str, engine: str) -> Optional[dict[str, any]]:
+        key = f"{engine}.strategies.{name}"
         strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
         if len(strategy) == 0:
-            return self._not_found("No such strategy")
-        strategy["name"] = strategy_name
-        strategy["engine"] = engine_name
+            return None
+        strategy["name"] = name
+        strategy["engine"] = engine
         strategy["config"] = await self.shared_cache.map_get_entries(f"{key}.config")
         markets = strategy["config"].get("markets")
         if isinstance(markets, str):
             strategy["config"]["markets"] = markets.split(",")
-        return self._ok(strategy)
+        return strategy
 
     async def on_prepare_response(self, req: Request, rsp: StreamResponse) -> None:
         rsp.headers["Server"] = "Moonship"
