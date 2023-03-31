@@ -25,6 +25,7 @@
 import aiohttp.web
 import aiohttp_session
 import asyncio
+import json
 import logging
 import os
 import redis.asyncio as aioredis
@@ -38,8 +39,6 @@ __all__ = [
     "RedisSessionStore",
     "RedisSharedCache"
 ]
-
-STORAGE_KEY_PREFIX = "moonship."
 
 redis: Optional[aioredis.Redis] = None
 redis_ref_count = 0
@@ -89,23 +88,23 @@ class RedisSharedCacheBulkOp(SharedCacheBulkOp):
         self.pipeline = pipeline
 
     def set_add(self, storage_key: str, element: str) -> SharedCacheBulkOp:
-        self.pipeline.sadd(f"{STORAGE_KEY_PREFIX}{storage_key}", element)
+        self.pipeline.sadd(storage_key, element)
         return self
 
     def set_remove(self, storage_key: str, element: str) -> SharedCacheBulkOp:
-        self.pipeline.srem(f"{STORAGE_KEY_PREFIX}{storage_key}", element)
+        self.pipeline.srem(storage_key, element)
         return self
 
     def map_put(self, storage_key: str, entries: dict[str, str]) -> SharedCacheBulkOp:
-        self.pipeline.hset(f"{STORAGE_KEY_PREFIX}{storage_key}", mapping=entries)
+        self.pipeline.hset(storage_key, mapping=entries)
         return self
 
     def delete(self, storage_key: str) -> SharedCacheBulkOp:
-        self.pipeline.delete(f"{STORAGE_KEY_PREFIX}{storage_key}")
+        self.pipeline.delete(storage_key)
         return self
 
     def expire(self, storage_key: str, time_msec: int) -> SharedCacheBulkOp:
-        self.pipeline.pexpire(f"{STORAGE_KEY_PREFIX}{storage_key}", time_msec)
+        self.pipeline.pexpire(storage_key, time_msec)
         return self
 
     async def execute(self) -> None:
@@ -124,16 +123,15 @@ class RedisSharedCache(SharedCache):
         await close_redis()
 
     async def set_add(self, storage_key: str, element: str) -> None:
-        await redis.sadd(f"{STORAGE_KEY_PREFIX}{storage_key}", element)
+        await redis.sadd(storage_key, element)
 
     async def set_remove(self, storage_key: str, element: str) -> None:
-        await redis.srem(f"{STORAGE_KEY_PREFIX}{storage_key}", element)
+        await redis.srem(storage_key, element)
 
     async def set_get_elements(self, storage_key: str) -> set[str]:
-        return await redis.smembers(f"{STORAGE_KEY_PREFIX}{storage_key}")
+        return await redis.smembers(storage_key)
 
     async def map_put(self, storage_key: str, entries: dict[str, str], append=True) -> None:
-        storage_key = f"{STORAGE_KEY_PREFIX}{storage_key}"
         if not append:
             await self.start_bulk() \
                 .delete(storage_key) \
@@ -143,16 +141,16 @@ class RedisSharedCache(SharedCache):
             await redis.hset(storage_key, mapping=entries)
 
     async def map_get(self, storage_key: str, key: str) -> str:
-        return await redis.hget(f"{STORAGE_KEY_PREFIX}{storage_key}", key)
+        return await redis.hget(storage_key, key)
 
     async def map_get_entries(self, storage_key: str) -> dict[str, str]:
-        return await redis.hgetall(f"{STORAGE_KEY_PREFIX}{storage_key}")
+        return await redis.hgetall(storage_key)
 
     async def delete(self, storage_key: str) -> None:
-        await redis.delete(f"{STORAGE_KEY_PREFIX}{storage_key}")
+        await redis.delete(storage_key)
 
     async def expire(self, storage_key: str, time_msec: int) -> None:
-        await redis.pexpire(f"{STORAGE_KEY_PREFIX}{storage_key}", time_msec)
+        await redis.pexpire(storage_key, time_msec)
 
     def start_bulk(self, transaction=True) -> SharedCacheBulkOp:
         return RedisSharedCacheBulkOp(redis.pipeline(transaction))
@@ -162,40 +160,69 @@ class RedisMessageBus(MessageBus):
 
     def __init__(self, config: Config) -> None:
         super().__init__(config)
-        self.channel_handlers = {}
-        self.pubsub: Optional[aioredis.client.PubSub] = None
-        self.listen_task: Optional[asyncio.Task] = None
+        self._channel_handlers: dict[str, list[Callable[[dict, str], Awaitable[None]]]] = {}
+        self._pubsub: Optional[aioredis.client.PubSub] = None
+        self._listen_task: Optional[asyncio.Task] = None
 
     async def start(self) -> None:
         await init_redis(self.config)
-        self.pubsub = redis.pubsub(ignore_subscribe_messages=True)
-        self.listen_task = asyncio.create_task(self._listen())
+        self._pubsub = redis.pubsub(ignore_subscribe_messages=True)
+        await self._pubsub.connect()
+        self._listen_task = asyncio.create_task(self._listen())
 
     async def close(self) -> None:
-        await self.pubsub.close()
-        if self.listen_task is not None:
-            self.listen_task.cancel()
+        for channel in list(self._channel_handlers.keys()):
+            await self.unsubscribe(channel)
+        await self._pubsub.close()
+        if self._listen_task is not None:
+            self._listen_task.cancel()
         await close_redis()
 
-    async def subscribe(self, channel_name: str, handler: Callable[[any, str], Awaitable[None]]) -> None:
-        self.channel_handlers[channel_name] = handler
-        await self.pubsub.subscribe(channel_name)
+    async def subscribe(self, channel: str, handler: Callable[[dict, str], Awaitable[None]]) -> None:
+        handlers = self._channel_handlers.get(channel)
+        if handlers is None:
+            await self._pubsub.subscribe(channel)
+            handlers = []
+            self._channel_handlers[channel] = handlers
+        if handler not in handlers:
+            handlers.append(handler)
 
-    async def unsubscribe(self, channel_name: str) -> None:
-        await self.pubsub.unsubscribe(channel_name)
-        del self.channel_handlers[channel_name]
+    async def unsubscribe(self, channel: str, handler: Callable[[dict, str], Awaitable[None]] = None) -> None:
+        if handler is None:
+            del self._channel_handlers[channel]
+        else:
+            handlers = self._channel_handlers.get(channel)
+            if handlers is not None:
+                handlers.remove(handler)
+                if len(handlers) == 0:
+                    del self._channel_handlers[channel]
+        if channel not in self._channel_handlers:
+            await self._pubsub.unsubscribe(channel)
 
-    async def publish(self, msg: any, channel_name: str) -> None:
-        await redis.publish(channel_name, msg)
-        logger.debug(f"Message published: [{channel_name}] {msg}")
+    async def publish(self, msg: dict, channel: str) -> None:
+        msg_str = json.dumps(msg, separators=(",", ":"))
+        await redis.publish(channel, msg_str)
+        logger.debug(f"Message published: [{channel}] {msg_str}")
 
     async def _listen(self) -> None:
         try:
-            async for msg in self.pubsub.listen():
+            while True:
+                msg = await self._pubsub.get_message(timeout=None)
+                if msg is None:
+                    continue
                 logger.debug(f"Message received: [{msg['channel']}] {msg['data']}")
-                handler = self.channel_handlers.get(msg["channel"])
-                if handler is not None:
-                    await handler(msg["data"], msg["channel"])
+                handlers = self._channel_handlers.get(msg["channel"])
+                if handlers is not None:
+                    try:
+                        msg_data = json.loads(msg["data"])
+                        for handler in handlers:
+                            await handler(msg_data, msg["channel"])
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.exception(
+                            f"Error handling message received on channel {msg['channel']}",
+                            exc_info=e)
         except asyncio.CancelledError:
             pass
 
@@ -268,4 +295,4 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
 
     def _storage_key(self, session: Union[str, aiohttp_session.Session]) -> str:
         session_id = session if isinstance(session, str) else session.identity
-        return f"session.{session_id}"
+        return f"moonship.session.{session_id}"

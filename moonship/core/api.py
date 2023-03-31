@@ -33,6 +33,7 @@ import uuid
 from aiohttp.web import HTTPException, Request, Response, StreamResponse
 from json import JSONDecodeError
 from moonship.core import *
+from moonship.core.ipc import *
 from moonship.core.redis import *
 from moonship.core.service import *
 from typing import Awaitable, Callable, Optional
@@ -66,10 +67,12 @@ class APIService(Service):
         await self.message_bus.start()
         web_app = aiohttp.web.Application(middlewares=[self.handle_error], logger=logger)
         web_app.add_routes([
-            aiohttp.web.post("/login", self.post_login),
-            aiohttp.web.get("/logout", self.get_logout),
+            aiohttp.web.post("/login", self.login),
+            aiohttp.web.get("/logout", self.logout),
             aiohttp.web.get("/strategies", self.get_strategies),
-            aiohttp.web.get("/strategies/{engine}/{strategy}", self.get_strategy)
+            aiohttp.web.get("/strategies/{engine}/{strategy}", self.get_strategy),
+            aiohttp.web.post("/strategies/{engine}/{strategy}/start", self.start_strategy),
+            aiohttp.web.post("/strategies/{engine}/{strategy}/stop", self.stop_strategy)
         ])
         web_app.on_response_prepare.append(self.on_prepare_response)
         self.session_store = RedisSessionStore(self.config)
@@ -94,7 +97,7 @@ class APIService(Service):
         await self.message_bus.close()
         await self.shared_cache.close()
 
-    async def post_login(self, req: Request) -> StreamResponse:
+    async def login(self, req: Request) -> StreamResponse:
         try:
             req_body = await req.json()
         except JSONDecodeError:
@@ -116,15 +119,15 @@ class APIService(Service):
         session.invalidate()
         return self._unauthorized("Invalid user or password")
 
-    async def get_logout(self, req: Request) -> StreamResponse:
+    async def logout(self, req: Request) -> StreamResponse:
         session = await aiohttp_session.get_session(req)
         session.invalidate()
         return self._ok()
 
     async def get_strategies(self, req: Request) -> StreamResponse:
         strategies = []
-        for engine in list(await self.shared_cache.set_get_elements("engines")):
-            for name in list(await self.shared_cache.set_get_elements(f"{engine}.strategies")):
+        for engine in list(await self.shared_cache.set_get_elements("moonship.engines")):
+            for name in list(await self.shared_cache.set_get_elements(f"moonship.{engine}.strategies")):
                 strategy = await self._get_strategy(name, engine)
                 if strategy is not None:
                     strategies.append(strategy)
@@ -137,7 +140,7 @@ class APIService(Service):
         return self._ok(strategy)
 
     async def _get_strategy(self, name: str, engine: str) -> Optional[dict[str, any]]:
-        key = f"{engine}.strategies.{name}"
+        key = f"moonship.{engine}.strategies.{name}"
         strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
         if len(strategy) == 0:
             return None
@@ -148,6 +151,38 @@ class APIService(Service):
         if isinstance(markets, str):
             strategy["config"]["markets"] = markets.split(",")
         return strategy
+
+    async def start_strategy(self, req: Request) -> StreamResponse:
+        return self._handle_engine_command_rsp(
+            await self.message_bus.publish_and_receive(
+                {
+                    "command": "start",
+                    "strategy": req.match_info["strategy"],
+                    "engine": req.match_info["engine"]
+                },
+                "moonship.message.request",
+                "moonship.message.response"))
+
+    async def stop_strategy(self, req: Request) -> StreamResponse:
+        return self._handle_engine_command_rsp(
+            await self.message_bus.publish_and_receive(
+                {
+                    "command": "stop",
+                    "strategy": req.match_info["strategy"],
+                    "engine": req.match_info["engine"]
+                },
+                "moonship.message.request",
+                "moonship.message.response"))
+
+    def _handle_engine_command_rsp(self, rsp: dict[str, any]) -> StreamResponse:
+        result = rsp.get("result")
+        if result is not None:
+            match result:
+                case MessageResult.SUCCESS.value:
+                    return self._ok()
+                case MessageResult.MISSING_OR_INVALID_PARAMETER.value:
+                    return self._bad_request(f"Missing or invalid: {rsp.get('parameter')}")
+        return self._error_response()
 
     async def on_prepare_response(self, req: Request, rsp: StreamResponse) -> None:
         rsp.headers["Server"] = "Moonship"
@@ -172,32 +207,36 @@ class APIService(Service):
             response = await handler(req)
             if response.status < 400 or response.content_type == "application/json":
                 return response
-            return self._error_response("error", response.reason, response.status)
+            return self._error_response(response.reason, response.status)
         except HTTPException as e:
-            return self._error_response("error", e.reason, e.status)
+            return self._error_response(e.reason, e.status)
+        except TimeoutError:
+            return self._timeout()
         except Exception as e:
             logger.exception("Internal server error", exc_info=e)
-            return self._error_response("error", "Internal server error", 500)
+            return self._error_response()
 
     def _ok(self, json_rsp_body: dict = None) -> Response:
         if json_rsp_body is not None:
             return aiohttp.web.json_response(json_rsp_body, status=200)
         return Response(status=200)
 
-    def _bad_request(self, error_title: str) -> Response:
-        return self._error_response("validation", error_title, 400)
+    def _bad_request(self, error: str) -> Response:
+        return self._error_response(error, 400)
 
-    def _unauthorized(self, error_title: str) -> Response:
-        return self._error_response("access", error_title, 401)
+    def _unauthorized(self, error: str) -> Response:
+        return self._error_response(error, 401)
 
-    def _not_found(self, error_title: str) -> Response:
-        return self._error_response("resource", error_title, 404)
+    def _not_found(self, error: str) -> Response:
+        return self._error_response(error, 404)
 
-    def _error_response(self, type: str, title: str, status: int) -> Response:
+    def _timeout(self) -> Response:
+        return self._error_response("Operation timeout", 504)
+
+    def _error_response(self, error: str = "Internal server error", status: int = 500) -> Response:
         return aiohttp.web.json_response(
             {
-                "type": type,
-                "title": title,
+                "error": error,
                 "status": status
             },
             status=status)

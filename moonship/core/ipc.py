@@ -23,12 +23,16 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import abc
+import asyncio
+import uuid
 
+from enum import Enum
 from moonship.core import *
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Union
 
 __all__ = [
     "MessageBus",
+    "MessageResult",
     "SharedCache",
     "SharedCacheBulkOp"
 ]
@@ -66,9 +70,11 @@ class SharedCache(abc.ABC):
     def __init__(self, config: Config) -> None:
         self.config = config
 
+    @abc.abstractmethod
     async def open(self) -> None:
         pass
 
+    @abc.abstractmethod
     async def close(self) -> None:
         pass
 
@@ -113,22 +119,70 @@ class MessageBus(abc.ABC):
 
     def __init__(self, config: Config) -> None:
         self.config = config
+        self._recv_futures: dict[str, list[asyncio.Future]] = {}
         pass
 
+    @abc.abstractmethod
     async def start(self) -> None:
         pass
 
+    @abc.abstractmethod
     async def close(self) -> None:
         pass
 
     @abc.abstractmethod
-    async def subscribe(self, channel_name: str, msg_handler: Callable[[any, str], Awaitable[None]]) -> None:
+    async def subscribe(self, channel: str, handler: Callable[[dict, str], Awaitable[None]]) -> None:
         pass
 
     @abc.abstractmethod
-    async def unsubscribe(self, channel_name: str) -> None:
+    async def unsubscribe(self, channel: str, handler: Callable[[dict, str], Awaitable[None]] = None) -> None:
         pass
 
     @abc.abstractmethod
-    async def publish(self, msg: any, channel_name: str) -> None:
+    async def publish(self, msg: dict, channel: str) -> None:
         pass
+
+    async def publish_and_receive(
+        self,
+        msg: dict,
+        send_channel: str,
+        recv_channel: str,
+        timeout_sec: int = 10,
+        recv_count: int = 1
+    ) -> Union[dict[str, any], list[dict[str, any]]]:
+        await self.subscribe(recv_channel, self._receive_handler)
+        if "id" not in msg:
+            msg["id"] = uuid.uuid4().hex
+        recv_msgs: list[dict[str, any]] = []
+        recv_futures: list[asyncio.Future] = []
+        for i in range(0, recv_count):
+            recv_futures.append(asyncio.get_event_loop().create_future())
+        self._recv_futures[msg["id"]] = recv_futures
+        try:
+            await self.publish(msg, send_channel)
+            done, pending = await asyncio.wait(recv_futures, timeout=timeout_sec, return_when=asyncio.ALL_COMPLETED)
+            if len(pending) > 0:
+                for future in pending:
+                    future.cancel()
+                raise TimeoutError
+            for future in done:
+                recv_msgs.append(future.result())
+        finally:
+            del self._recv_futures[msg["id"]]
+        return recv_msgs if len(recv_msgs) > 1 else recv_msgs[0]
+
+    async def _receive_handler(self, msg: dict[str, any], channel: str) -> None:
+        id = msg.get("id")
+        if id is not None:
+            recv_futures = self._recv_futures.get(id)
+            if recv_futures is not None:
+                for future in recv_futures:
+                    if not future.done():
+                        future.set_result(msg)
+
+
+class MessageResult(Enum):
+    SUCCESS = 0
+    FAILED = 1
+    MISSING_OR_INVALID_PARAMETER = 2
+    UNSUPPORTED = 3

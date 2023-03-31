@@ -210,7 +210,7 @@ class TradingEngine(Service):
         if self.shared_cache is not None:
             await self.shared_cache.open()
             if self.name == DEFAULT_ENGINE_NAME:
-                engines = await self.shared_cache.set_get_elements("engines")
+                engines = await self.shared_cache.set_get_elements("moonship.engines")
                 if self.name in engines:
                     for k in range(2, len(engines) + 2):
                         n = f"{DEFAULT_ENGINE_NAME}{k}"
@@ -218,17 +218,20 @@ class TradingEngine(Service):
                             self.name = n
                             break
             b = self.shared_cache.start_bulk() \
-                .set_add("engines", self.name) \
-                .map_put(self.name, {"start_time": str(start_time)})
+                .set_add("moonship.engines", self.name) \
+                .map_put(f"moonship.{self.name}", {"start_time": str(start_time)})
             for strategy_name in self.strategies.keys():
-                b.set_add(f"{self.name}.strategies", strategy_name)
-                b.map_put(f"{self.name}.strategies.{strategy_name}", {"active": "false"})
+                b.set_add(f"moonship.{self.name}.strategies", strategy_name)
+                b.map_put(f"moonship.{self.name}.strategies.{strategy_name}", {"active": "false"})
                 strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
                 if isinstance(strategy_config, Config):
-                    b.map_put(f"{self.name}.strategies.{strategy_name}.config", self._flatten_dict(strategy_config.dict))
+                    b.map_put(
+                        f"moonship.{self.name}.strategies.{strategy_name}.config",
+                        self._flatten_dict(strategy_config.dict))
             await b.execute()
         if self.message_bus is not None:
             await self.message_bus.start()
+            await self.message_bus.subscribe("moonship.message.request", self.on_command_received)
         for strategy in self.strategies.values():
             strategy.init_config(self.config)
             if strategy.auto_start:
@@ -236,7 +239,7 @@ class TradingEngine(Service):
 
     async def start_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
-        if strategy is not None:
+        if strategy is not None and not strategy.active:
             for market_name in strategy.markets.keys():
                 market = self.markets[market_name]
                 if market.market.status == MarketStatus.CLOSED:
@@ -256,12 +259,12 @@ class TradingEngine(Service):
                 logger.info(f"Closed {market.market.name} market")
         if self.shared_cache is not None:
             b = self.shared_cache.start_bulk() \
-                .set_remove("engines", self.name) \
-                .delete(f"{self.name}.strategies") \
-                .delete(self.name)
+                .set_remove("moonship.engines", self.name) \
+                .delete(f"moonship.{self.name}.strategies") \
+                .delete(f"moonship.{self.name}")
             for strategy_name in self.strategies.keys():
-                b.delete(f"{self.name}.strategies.{strategy_name}")
-                b.delete(f"{self.name}.strategies.{strategy_name}.config")
+                b.delete(f"moonship.{self.name}.strategies.{strategy_name}")
+                b.delete(f"moonship.{self.name}.strategies.{strategy_name}.config")
             await b.execute()
             await self.shared_cache.close()
 
@@ -270,6 +273,49 @@ class TradingEngine(Service):
         if strategy is not None and strategy.active:
             await strategy.stop()
             logger.info(f"Stopped {strategy.name} strategy")
+
+    async def on_command_received(self, msg: dict[str, any], channel: str) -> None:
+        if msg.get("engine") != self.name:
+            return
+
+        command = msg.get("command")
+        if command is None:
+            result = MessageResult.MISSING_OR_INVALID_PARAMETER
+            rsp_data = {"parameter": "command"}
+        else:
+            try:
+                match command:
+                    case "start":
+                        result, rsp_data = await self.on_start_strategy_command(msg)
+                    case "stop":
+                        result, rsp_data = await self.on_stop_strategy_command(msg)
+                    case _:
+                        result = MessageResult.UNSUPPORTED
+                        rsp_data = {}
+            except Exception as e:
+                logger.exception(f"Error processing {command} command", exc_info=e)
+                result = MessageResult.FAILED
+                rsp_data = {}
+        rsp = {
+            "id": msg.get("id"),
+            "result": result.value
+        }
+        rsp.update(rsp_data)
+        await self.message_bus.publish(rsp, "moonship.message.response")
+
+    async def on_start_strategy_command(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+        strategy = msg.get("strategy")
+        if strategy is None or strategy not in self.strategies:
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
+        await self.start_strategy(strategy)
+        return MessageResult.SUCCESS, {}
+
+    async def on_stop_strategy_command(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+        strategy = msg.get("strategy")
+        if strategy is None or strategy not in self.strategies:
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter", "strategy"}
+        await self.stop_strategy(strategy)
+        return MessageResult.SUCCESS, {}
 
     def _flatten_dict(self, object: dict, result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
         if result is None:
