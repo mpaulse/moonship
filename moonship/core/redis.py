@@ -277,15 +277,15 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
             request: aiohttp.web.Request,
             response: aiohttp.web.Response,
             session: aiohttp_session.Session):
+        storage_key = self._storage_key(session)
         if session.empty:
             self.save_cookie(response, None)
-            await self.shared_cache.delete(f"session.{session.identity}")
+            await self.shared_cache.delete(storage_key)
         else:
             self.save_cookie(response, session.identity, max_age=session.max_age)
             session_data = self._get_session_data(session)
             session_save_data = session_data["session"]
             session_save_data["created"] = session_data["created"]
-            storage_key = self._storage_key(session)
             b = self.shared_cache.start_bulk() \
                 .delete(storage_key) \
                 .map_put(storage_key, session_save_data)
