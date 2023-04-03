@@ -53,6 +53,12 @@ class APIService(Service):
         password = config.get("moonship.api.password")
         if not isinstance(password, str):
             raise StartUpException("No API password configured")
+        self.idle_session_expiry_msec = config.get("moonship.api.idle_session_expiry", 0)
+        if not isinstance(self.idle_session_expiry_msec, int):
+            raise StartUpException("Invalid API idle session expiry time")
+        self.idle_session_expiry_msec *= 60_000
+        if self.idle_session_expiry_msec <= 0:
+            self.idle_session_expiry_msec = None
         self.access_log_format = config.get("moonship.api.access_log_format")
         if not isinstance(self.access_log_format, str):
             self.access_log_format = '%a %t "%r" %s %b "%{Referer}i" "%{User-Agent}i'
@@ -75,7 +81,7 @@ class APIService(Service):
             aiohttp.web.post("/strategies/{engine}/{strategy}/stop", self.stop_strategy)
         ])
         web_app.on_response_prepare.append(self.on_prepare_response)
-        self.session_store = RedisSessionStore(self.config)
+        self.session_store = RedisSessionStore(self.config, self.idle_session_expiry_msec)
         await self.session_store.open()
         aiohttp_session.setup(web_app, self.session_store)
         web_app.middlewares.append(self.verify_session)

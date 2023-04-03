@@ -229,15 +229,16 @@ class RedisMessageBus(MessageBus):
 
 class RedisSessionStore(aiohttp_session.AbstractStorage):
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, idle_session_expiry_msec: int = None):
         super().__init__(
             cookie_name="__Host-session_token",
             domain=None,
             max_age=None,
             httponly=True,
             path="/",
-            secure=True)
-        self.cookie_params["samesite"] = "Strict"
+            secure=True,
+            samesite="Strict")
+        self.idle_session_expiry_msec = idle_session_expiry_msec
         self.shared_cache = RedisSharedCache(config)
 
     async def open(self) -> None:
@@ -257,20 +258,20 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
     async def load_session(self, request: aiohttp.web.Request):
         session_id = self.load_cookie(request)
         if session_id is None:
-            return aiohttp_session.Session(None, data=None, new=True, max_age=self.max_age)
+            return aiohttp_session.Session(None, data=None, new=True, max_age=None)
         else:
             storage_key = self._storage_key(session_id)
             session_save_data = await self.shared_cache.map_get_entries(storage_key)
             if session_save_data is None or len(session_save_data) == 0:
-                return aiohttp_session.Session(None, data=None, new=True, max_age=self.max_age)
-            if self.max_age is not None:
-                await self.shared_cache.expire(storage_key, self.max_age * 1000)
+                return aiohttp_session.Session(None, data=None, new=True, max_age=None)
+            if self.idle_session_expiry_msec is not None:
+                await self.shared_cache.expire(storage_key, self.idle_session_expiry_msec)
             session_data = {
                 "created": int(session_save_data["created"]),
                 "session": session_save_data
             }
             del session_save_data["created"]
-            return aiohttp_session.Session(session_id, data=session_data, new=False, max_age=self.max_age)
+            return aiohttp_session.Session(session_id, data=session_data, new=False, max_age=None)
 
     async def save_session(
             self,
@@ -282,15 +283,15 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
             self.save_cookie(response, None)
             await self.shared_cache.delete(storage_key)
         else:
-            self.save_cookie(response, session.identity, max_age=session.max_age)
+            self.save_cookie(response, session.identity, max_age=None)
             session_data = self._get_session_data(session)
             session_save_data = session_data["session"]
             session_save_data["created"] = session_data["created"]
             b = self.shared_cache.start_bulk() \
                 .delete(storage_key) \
                 .map_put(storage_key, session_save_data)
-            if session.max_age is not None:
-                b.expire(storage_key, session.max_age * 1000)
+            if self.idle_session_expiry_msec is not None:
+                b.expire(storage_key, self.idle_session_expiry_msec)
             await b.execute()
 
     def _storage_key(self, session: Union[str, aiohttp_session.Session]) -> str:
