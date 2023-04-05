@@ -22,6 +22,7 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import asyncio
 import logging
 
 from moonship.core import *
@@ -83,8 +84,8 @@ class Strategy:
             for market in self._markets.values():
                 market.subscribe(self._algo)
             self._active = True
-            await self._algo.on_started()
             await self.update_shared_cache({"active": "true", "start_time": str(start_time)})
+            asyncio.create_task(self._algo.on_started())
 
     async def stop(self) -> None:
         if self._active:
