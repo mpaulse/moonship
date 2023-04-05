@@ -131,12 +131,19 @@ class APIService(Service):
         return self._ok()
 
     async def get_strategies(self, req: Request) -> StreamResponse:
+        query_params = req.query
         strategies = []
         for engine in list(await self.shared_cache.set_get_elements("moonship.engines")):
             for name in list(await self.shared_cache.set_get_elements(f"moonship.{engine}.strategies")):
                 strategy = await self._get_strategy(name, engine)
                 if strategy is not None:
-                    strategies.append(strategy)
+                    match = True
+                    for param, value in query_params.items():
+                        if strategy.get(param) != value:
+                            match = False
+                            break
+                    if match:
+                        strategies.append(strategy)
         return self._ok({"strategies": strategies})
 
     async def get_strategy(self, req: Request) -> StreamResponse:
