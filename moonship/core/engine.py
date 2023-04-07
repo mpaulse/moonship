@@ -313,7 +313,7 @@ class TradingEngine(Service):
     async def on_stop_strategy_command(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
         strategy = msg.get("strategy")
         if strategy is None or strategy not in self.strategies:
-            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter", "strategy"}
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
         await self.stop_strategy(strategy)
         return MessageResult.SUCCESS, {}
 
