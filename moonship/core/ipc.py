@@ -199,7 +199,7 @@ class MessageBus(abc.ABC):
         msg: dict,
         send_channel: str,
         recv_channel: str,
-        timeout_sec: int = 10,
+        timeout_sec: int = 20,
         recv_count: int = 1
     ) -> Union[dict[str, any], list[dict[str, any]]]:
         await self.subscribe(recv_channel, self._receive_handler)

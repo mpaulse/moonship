@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -22,10 +22,12 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import copy
 import os
 import yaml
 
-from typing import ItemsView, Iterator, Union
+from moonship.core.error import ConfigException
+from typing import ItemsView, Iterator, KeysView, Union
 
 __all__ = [
     "Config",
@@ -64,28 +66,70 @@ class ConfigItemsView(ItemsView):
 
 class Config:
 
-    def __init__(self, config_dict: dict, key: str = None) -> None:
-        self.dict = config_dict
-        self.key = key
+    def __init__(self, config_dict: dict[str, any] = None, key: str = None) -> None:
+        if config_dict is None:
+            config_dict = {}
+        self._dict = config_dict
+        self._key = key
 
-    def __ior__(self, other: "Config") -> "Config":
-        self.dict |= other.dict
+    @property
+    def dict(self) -> dict[str, any]:
+        return self._dict
+
+    @property
+    def key(self) -> str:
+        return self._key
+
+    def __ior__(self, other: Union["Config", dict]) -> "Config":
+        if isinstance(other, dict):
+            self._dict |= other
+        else:
+            self._dict |= other._dict
         return self
 
     def __iter__(self) -> Iterator[any]:
-        return iter(self.dict)
+        return iter(self._dict)
+
+    def keys(self) -> KeysView:
+        return self._dict.keys()
 
     def items(self) -> ItemsView[str, Union["Config", any]]:
-        return ConfigItemsView(self.dict, self.key)
+        return ConfigItemsView(self._dict, self._key)
 
     def get(self, key: str, default: any = None) -> Union["Config", any]:
         keys = key.split(".")
-        value = self.dict
+        value = self._dict
         for i in range(0, len(keys)):
             value = value.get(keys[i])
             if value is None or (not isinstance(value, dict) and i < len(keys) - 1):
                 return default
-        return convert_config_value(value, self.key, key)
+        return convert_config_value(value, self._key, key)
+
+    def set(self, key: str, value: any) -> None:
+        keys = key.split(".")
+        parent = self._dict
+        for i in range(0, len(keys) - 1):
+            p = parent.get(keys[i])
+            if p is None:
+                p = {}
+                parent[keys[i]] = p
+            elif not isinstance(parent, dict):
+                raise ConfigException(f"{'.'.join(keys[0:i+1])} is not a dict value")
+            parent = p
+        parent[keys[-1]] = value if not isinstance(value, Config) else value.dict
+
+    def remove(self, key: str) -> None:
+        keys = key.split(".")
+        parent = self._dict
+        for i in range(0, len(keys) - 1):
+            parent = parent.get(keys[i])
+            if parent is None:
+                break
+        if isinstance(parent, dict):
+            del parent[keys[-1]]
+
+    def copy(self) -> "Config":
+        return Config(copy.deepcopy(self._dict), self._key)
 
     @staticmethod
     def load_from_file(config_filename: str) -> "Config":

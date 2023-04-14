@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -54,10 +54,10 @@ class ValrClient(AbstractWebClient):
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.valr.api_key")
         if not isinstance(api_key, str):
-            raise StartUpException("VALR API key not configured")
+            raise ConfigException("VALR API key not configured")
         self.api_secret = app_config.get("moonship.valr.api_secret")
         if not isinstance(self.api_secret, str):
-            raise StartUpException("VALR API secret not configured")
+            raise ConfigException("VALR API secret not configured")
         headers = {"X-VALR-API-KEY": api_key}
         self.async_tasks: list[asyncio.Task] = []
         super().__init__(

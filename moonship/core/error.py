@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -28,11 +28,12 @@ import enum
 from typing import Tuple, Optional
 
 __all__ = [
+    "ConfigException",
     "HttpResponseException",
     "MarketErrorCode",
     "MarketException",
     "ShutdownException",
-    "StartUpException",
+    "StartUpException"
 ]
 
 
@@ -71,6 +72,10 @@ class MarketException(Exception):
 
 
 class StartUpException(Exception):
+    pass
+
+
+class ConfigException(StartUpException):
     pass
 
 

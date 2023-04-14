@@ -166,47 +166,54 @@ class TradingEngine(Service):
         if config.get("moonship.redis") is not None:
             self.shared_cache = RedisSharedCache(config)
             self.message_bus = RedisMessageBus(config)
-        self._init_markets(config)
-        self._init_strategies(config)
+        self.init_markets(config)
+        self.init_strategies(config)
 
-    def _init_markets(self, config: Config) -> None:
+    def init_markets(self, config: Config) -> None:
         markets_config = config.get("moonship.markets")
         if not isinstance(markets_config, Config):
-            raise StartUpException("No market configuration specified")
+            raise ConfigException("No market configuration specified")
         for market_name, market_config in markets_config.items():
             symbol = market_config.get("symbol")
             if not isinstance(symbol, str):
-                raise StartUpException(f"No symbol configured for {market_name} market")
-            cls = self._load_class("client", market_config, MarketClient)
+                raise ConfigException(f"No symbol configured for {market_name} market")
+            cls = self.load_class("client", market_config, MarketClient)
             client = cls(market_name, config)
             max_recent_trade_list_size = market_config.get("max_recent_trade_list_size")
             if not isinstance(max_recent_trade_list_size, int):
                 max_recent_trade_list_size = DEFAULT_MAX_RECENT_TRADE_LIST_SIZE
             self.markets[market_name] = MarketManager(Market(market_name, symbol, client), max_recent_trade_list_size)
 
-    def _init_strategies(self, config: Config) -> None:
+    def init_strategies(self, config: Config) -> None:
         strategies_config = config.get("moonship.strategies")
         if not isinstance(strategies_config, Config):
-            raise StartUpException("No strategy configuration specified")
-        for strategy_name, strategy_config in strategies_config.items():
-            markets_names = strategy_config.get("markets")
-            if not isinstance(markets_names, list) or len(markets_names) == 0:
-                logger.warning(f"No markets configured for {strategy_name} strategy. Ignoring.")
-                continue
-            markets: [str, Market] = {}
-            for market_name in markets_names:
-                market = self.markets[market_name]
-                if market is None:
-                    raise StartUpException(f"Invalid market specified for {strategy_name} strategy: {market_name}")
-                markets[market_name] = market.market
-            algo_class = self._load_class("algo", strategy_config, TradingAlgo)
-            self.strategies[strategy_name] = Strategy(
-                strategy_name,
-                self.name,
-                self.id,
-                algo_class,
-                markets,
-                self.shared_cache)
+            raise ConfigException("No strategy configuration specified")
+        for strategy_name in strategies_config.keys():
+            self.strategies[strategy_name] = self.init_strategy(strategy_name, config)
+
+    def init_strategy(self, name: str, app_config: Config) -> Strategy:
+        strategy_config = app_config.get(f"moonship.strategies.{name}")
+        if not isinstance(strategy_config, Config):
+            raise ConfigException(f"No configuration for {name} strategy")
+        market_names = strategy_config.get("markets")
+        if not isinstance(market_names, list) or len(market_names) == 0:
+            raise ConfigException(f"No markets configured for {name} strategy")
+        markets: [str, Market] = {}
+        for market_name in market_names:
+            market = self.markets.get(market_name)
+            if market is None:
+                raise ConfigException(f"Invalid market specified for {name} strategy: {market_name}")
+            markets[market_name] = market.market
+        algo_class = self.load_class("algo", strategy_config, TradingAlgo)
+        strategy = Strategy(
+            name,
+            self.name,
+            self.id,
+            algo_class,
+            markets,
+            self.shared_cache)
+        strategy.init_config(app_config)
+        return strategy
 
     async def start(self) -> None:
         if self.shared_cache is not None:
@@ -215,21 +222,24 @@ class TradingEngine(Service):
                 .list_push_tail("moonship:engines", self.name) \
                 .list_push_tail(f"moonship:{self.name}:ids", self.id)
             for strategy_name in self.strategies.keys():
-                b.set_add(f"moonship:{self.name}:{self.id}:strategies", strategy_name)
-                b.map_put(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}", {"active": "false"})
-                strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
-                if isinstance(strategy_config, Config):
-                    b.map_put(
-                        f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config",
-                        self._flatten_dict(strategy_config.dict))
+                self.add_strategy_cache_info(strategy_name, b)
             await b.execute()
         if self.message_bus is not None:
             await self.message_bus.start()
-            await self.message_bus.subscribe("moonship:message:request", self.on_command_received)
+            await self.message_bus.subscribe("moonship:message:request", self.on_msg_received)
         for strategy in self.strategies.values():
-            strategy.init_config(self.config)
             if strategy.auto_start:
                 await self.start_strategy(strategy.name)
+
+    def add_strategy_cache_info(self, strategy_name, op: SharedCacheBulkOp) -> None:
+        op \
+            .set_add(f"moonship:{self.name}:{self.id}:strategies", strategy_name) \
+            .map_put(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}", {"active": "false"})
+        strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
+        if isinstance(strategy_config, Config):
+            op.map_put(
+                f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config",
+                self.flatten_dict(strategy_config.dict))
 
     async def start_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
@@ -257,10 +267,14 @@ class TradingEngine(Service):
                 .list_remove(f"moonship:{self.name}:ids", self.id) \
                 .delete(f"moonship:{self.name}:{self.id}:strategies")
             for strategy_name in self.strategies.keys():
-                b.delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}")
-                b.delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config")
+                self.delete_strategy_cache_info(strategy_name, b)
             await b.execute()
             await self.shared_cache.close()
+
+    def delete_strategy_cache_info(self, strategy_name: str, op: SharedCacheBulkOp):
+        op \
+            .delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}") \
+            .delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config")
 
     async def stop_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
@@ -268,7 +282,7 @@ class TradingEngine(Service):
             await strategy.stop()
             logger.info(f"Stopped {strategy.name} strategy")
 
-    async def on_command_received(self, msg: dict[str, any], channel: str) -> None:
+    async def on_msg_received(self, msg: dict[str, any], channel: str) -> None:
         if msg.get("engine") != self.name:
             return
 
@@ -279,44 +293,95 @@ class TradingEngine(Service):
         else:
             try:
                 match command:
+                    case "add":
+                        result, rsp_data = await self.on_configure_strategy_msg(msg, add=True)
+                    case "update":
+                        result, rsp_data = await self.on_configure_strategy_msg(msg, add=False)
+                    case "remove":
+                        result, rsp_data = await self.on_remove_strategy_msg(msg)
                     case "start":
-                        result, rsp_data = await self.on_start_strategy_command(msg)
+                        result, rsp_data = await self.on_start_strategy_msg(msg)
                     case "stop":
-                        result, rsp_data = await self.on_stop_strategy_command(msg)
+                        result, rsp_data = await self.on_stop_strategy_msg(msg)
                     case _:
                         result = MessageResult.UNSUPPORTED
                         rsp_data = {}
-            except Exception as e:
-                logger.exception(f"Error processing {command} command", exc_info=e)
+            except Exception:
+                logger.exception(f"Error processing {command} command")
                 result = MessageResult.FAILED
                 rsp_data = {}
         rsp = {
             "id": msg.get("id"),
             "result": result.value
         }
-        rsp.update(rsp_data)
+        rsp |= rsp_data
         await self.message_bus.publish(rsp, "moonship:message:response")
 
-    async def on_start_strategy_command(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+    async def on_configure_strategy_msg(self, msg: dict[str, any], add: bool) -> (MessageResult, dict[str, any]):
+        name = msg.get("strategy")
+        if name is None or (add and name in self.strategies) or (not add and name not in self.strategies):
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
+        config = msg.get("config")
+        if not isinstance(config, dict):
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "config"}
+        try:
+            new_app_config = self.config.copy()
+            if not add:
+                strategy_config = new_app_config.get(f"moonship.strategies.{name}")
+                strategy_config |= config
+                config = strategy_config
+            new_app_config.set(f"moonship.strategies.{name}", config)
+            strategy = self.init_strategy(name, new_app_config)
+            auto_start = strategy.auto_start
+            if not add:
+                old_strategy = self.strategies[name]
+                if old_strategy.active:
+                    await self.stop_strategy(name)
+                    auto_start = True
+            self.strategies[name] = strategy
+            self.config = new_app_config
+            b = self.shared_cache.start_bulk()
+            self.add_strategy_cache_info(name, b)
+            await b.execute()
+            if auto_start:
+                await self.start_strategy(name)
+            return MessageResult.SUCCESS, {}
+        except ConfigException:
+            logger.exception(f"Failed to {'add' if add else 'update'} strategy {name}")
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "config"}
+
+    async def on_remove_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+        strategy = msg.get("strategy")
+        if strategy is None or strategy not in self.strategies:
+            return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
+        await self.stop_strategy(strategy)
+        del self.strategies[strategy]
+        self.config.remove(f"moonship.strategies.{strategy}")
+        b = self.shared_cache.start_bulk()
+        self.delete_strategy_cache_info(strategy, b)
+        await b.execute()
+        return MessageResult.SUCCESS, {}
+
+    async def on_start_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
         strategy = msg.get("strategy")
         if strategy is None or strategy not in self.strategies:
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
         await self.start_strategy(strategy)
         return MessageResult.SUCCESS, {}
 
-    async def on_stop_strategy_command(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+    async def on_stop_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
         strategy = msg.get("strategy")
         if strategy is None or strategy not in self.strategies:
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
         await self.stop_strategy(strategy)
         return MessageResult.SUCCESS, {}
 
-    def _flatten_dict(self, object: dict, result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
+    def flatten_dict(self, object: dict, result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
         if result is None:
             result = {}
         for k, v in object.items():
             if isinstance(v, dict):
-                self._flatten_dict(v, result, f"{k}.")
+                self.flatten_dict(v, result, f"{k}.")
             elif isinstance(v, list):
                 s = io.StringIO()
                 print(*v, sep=",", end="", file=s)
@@ -325,21 +390,21 @@ class TradingEngine(Service):
                 result[f"{key_prefix}{k}"] = str(v)
         return result
 
-    def _load_class(self, key: str, config: Config, expected_type: type) -> type:
+    def load_class(self, key: str, config: Config, expected_type: type) -> type:
         class_name = config.get(key)
         if not isinstance(class_name, str):
-            raise StartUpException(f"Missing configuration: {config.key}.{key}")
-        cls, version = self._get_class_and_version(class_name)
+            raise ConfigException(f"Missing configuration: {config.key}.{key}")
+        cls, version = self.get_class_and_version(class_name)
         if cls is None or not issubclass(cls, expected_type):
-            raise StartUpException(f"Invalid configuration: {config.key}.{key}")
+            raise ConfigException(f"Invalid configuration: {config.key}.{key}")
         logger.info(f"Loaded {key} {class_name if version is None else f'{class_name} (version {version})'}")
         return cls
 
-    def _get_class_and_version(self, class_name: str) -> (Optional[type], Optional[str]):
+    def get_class_and_version(self, class_name: str) -> (Optional[type], Optional[str]):
         try:
             module_name, class_name = class_name.rsplit(".", 1)
             module = importlib.import_module(module_name)
             return getattr(module, class_name), getattr(module, "__version__", None)
-        except:
+        except Exception:
             logger.exception("Module load error")
             return None, None

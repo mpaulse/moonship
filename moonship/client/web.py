@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -100,9 +100,9 @@ class AbstractWebClient(MarketClient, abc.ABC):
                     await self.on_after_data_stream_connect(websocket, params)
                     while not self.closed and not websocket.closed:
                         await self.on_data_stream_msg(await websocket.receive_json(), websocket)
-            except Exception as e:
+            except Exception:
                 if not self.closed:
-                    self.logger.exception("Data stream error", exc_info=e)
+                    self.logger.exception("Data stream error")
                     await asyncio.sleep(1)
 
     async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
