@@ -1,4 +1,4 @@
-#  Copyright (c) 2022, Marlon Paulse
+#  Copyright (c) 2023, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -47,10 +47,10 @@ class BinanceClient(AbstractWebClient):
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get("moonship.binance.api_key")
         if not isinstance(api_key, str):
-            raise StartUpException("Binance API key not configured")
+            raise ConfigException("Binance API key not configured")
         self.api_secret = app_config.get("moonship.binance.api_secret")
         if not isinstance(self.api_secret, str):
-            raise StartUpException("Binance API secret not configured")
+            raise ConfigException("Binance API secret not configured")
         self.last_order_book_update_id = -1
         self.order_book_event_buf: list[dict] = []
         self.order_details_cache: dict[str, FullOrderDetails] = {}

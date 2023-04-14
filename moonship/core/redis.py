@@ -55,9 +55,9 @@ async def init_redis(config: Config) -> aioredis.Redis:
                 try:
                     url = os.environ[url[1:]]
                 except KeyError:
-                    raise StartUpException(f"No {url[1:]} environment variable set")
+                    raise ConfigException(f"No {url[1:]} environment variable set")
         else:
-            raise StartUpException("Redis URL not configured")
+            raise ConfigException("Redis URL not configured")
         options = {
             "decode_responses": True
         }

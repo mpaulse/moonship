@@ -103,8 +103,8 @@ class Strategy:
                 await self._shared_cache.map_put(
                     f"moonship:{self._engine_name}:{self._engine_id}:strategy:{self.name}",
                     data)
-            except Exception as e:
-                self.logger.exception("Failed to update shared cache", exc_info=e)
+            except Exception:
+                self.logger.exception("Failed to update shared cache")
 
 
 class TradingAlgo(MarketSubscriber):

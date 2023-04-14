@@ -45,17 +45,17 @@ class APIService(Service):
 
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.port = self._get_port(config)
-        self.ssl_context = self._get_ssl_context(config)
+        self.port = self.get_port(config)
+        self.ssl_context = self.get_ssl_context(config)
         self.user = config.get("moonship.api.user")
         if not isinstance(self.user, str):
-            raise StartUpException("No API user configured")
+            raise ConfigException("No API user configured")
         password = config.get("moonship.api.password")
         if not isinstance(password, str):
-            raise StartUpException("No API password configured")
+            raise ConfigException("No API password configured")
         self.idle_session_expiry_msec = config.get("moonship.api.idle_session_expiry", 0)
         if not isinstance(self.idle_session_expiry_msec, int):
-            raise StartUpException("Invalid API idle session expiry time")
+            raise ConfigException("Invalid API idle session expiry time")
         self.idle_session_expiry_msec *= 60_000
         if self.idle_session_expiry_msec <= 0:
             self.idle_session_expiry_msec = None
@@ -77,6 +77,9 @@ class APIService(Service):
             aiohttp.web.get("/logout", self.logout),
             aiohttp.web.get("/strategies", self.get_strategies),
             aiohttp.web.get("/strategies/{engine}/{strategy}", self.get_strategy),
+            aiohttp.web.post("/strategies/{engine}/{strategy}", self.add_strategy),
+            aiohttp.web.patch("/strategies/{engine}/{strategy}", self.update_strategy),
+            aiohttp.web.delete("/strategies/{engine}/{strategy}", self.remove_strategy),
             aiohttp.web.post("/strategies/{engine}/{strategy}/start", self.start_strategy),
             aiohttp.web.post("/strategies/{engine}/{strategy}/stop", self.stop_strategy)
         ])
@@ -107,34 +110,34 @@ class APIService(Service):
         try:
             req_body = await req.json()
         except JSONDecodeError:
-            return self._bad_request("Missing or bad request body")
+            return self.bad_request("Missing or bad request body")
         user = req_body.get("user")
         if not isinstance(user, str):
-            return self._bad_request("Missing or bad user field")
+            return self.bad_request("Missing or bad user field")
         password = req_body.get("password")
         if not isinstance(password, str):
-            return self._bad_request("Missing or bad password field")
+            return self.bad_request("Missing or bad password field")
         session = await aiohttp_session.get_session(req)
         if user == self.user and bcrypt.checkpw(password.encode("utf-8"), self.password):
             if session.new:
                 session.set_new_identity(uuid.uuid4().hex)
                 session["user"] = self.user
-            return self._ok({
+            return self.ok({
                 "session_token": session.identity
             })
         session.invalidate()
-        return self._unauthorized("Invalid user or password")
+        return self.unauthorized("Invalid user or password")
 
     async def logout(self, req: Request) -> StreamResponse:
         session = await aiohttp_session.get_session(req)
         session.invalidate()
-        return self._ok()
+        return self.ok()
 
     async def get_strategies(self, req: Request) -> StreamResponse:
         query_params = req.query
         strategies = []
         for engine in set(await self.shared_cache.list_get_elements("moonship:engines")):
-            engine_id = await self._get_engine_id(engine)
+            engine_id = await self.get_engine_id(engine)
             for name in await self.shared_cache.set_get_elements(f"moonship:{engine}:{engine_id}:strategies"):
                 strategy = await self._get_strategy(name, engine, engine_id)
                 if strategy is not None:
@@ -145,9 +148,9 @@ class APIService(Service):
                             break
                     if match:
                         strategies.append(strategy)
-        return self._ok({"strategies": strategies})
+        return self.ok({"strategies": strategies})
 
-    async def _get_engine_id(self, engine: str) -> str:
+    async def get_engine_id(self, engine: str) -> str:
         return await self.shared_cache.list_get_tail(f"moonship:{engine}:ids")
 
     async def get_strategy(self, req: Request) -> StreamResponse:
@@ -155,10 +158,10 @@ class APIService(Service):
         strategy = await self._get_strategy(
             req.match_info["strategy"],
             engine,
-            await self._get_engine_id(engine))
+            await self.get_engine_id(engine))
         if strategy is None:
-            return self._not_found("No such strategy")
-        return self._ok(strategy)
+            return self.not_found("No such strategy")
+        return self.ok(strategy)
 
     async def _get_strategy(self, name: str, engine: str, engine_id: str) -> Optional[dict[str, any]]:
         key = f"moonship:{engine}:{engine_id}:strategy:{name}"
@@ -173,37 +176,53 @@ class APIService(Service):
             strategy["config"]["markets"] = markets.split(",")
         return strategy
 
+    async def add_strategy(self, req: Request) -> StreamResponse:
+        return await self.configure_strategy(req, "add")
+
+    async def update_strategy(self, req: Request) -> StreamResponse:
+        return await self.configure_strategy(req, "update")
+
+    async def configure_strategy(self, req: Request, command: str) -> StreamResponse:
+        try:
+            req_body = await req.json()
+        except JSONDecodeError:
+            return self.bad_request("Missing or bad request body")
+        config = req_body.get("config")
+        if not isinstance(config, dict):
+            return self.bad_request("Missing or invalid config field")
+        return await self.invoke_strategy_command(command, req, {"config": config})
+
+    async def remove_strategy(self, req: Request) -> StreamResponse:
+        return await self.invoke_strategy_command("remove", req)
+
     async def start_strategy(self, req: Request) -> StreamResponse:
-        return self._handle_engine_command_rsp(
-            await self.message_bus.publish_and_receive(
-                {
-                    "command": "start",
-                    "strategy": req.match_info["strategy"],
-                    "engine": req.match_info["engine"]
-                },
-                "moonship:message:request",
-                "moonship:message:response"))
+        return await self.invoke_strategy_command("start", req)
 
     async def stop_strategy(self, req: Request) -> StreamResponse:
-        return self._handle_engine_command_rsp(
+        return await self.invoke_strategy_command("stop", req)
+
+    async def invoke_strategy_command(self, command: str, req: Request, data: dict[str, any] = None) -> StreamResponse:
+        if data is None:
+            data = {}
+        return self.handle_msg_bus_response(
             await self.message_bus.publish_and_receive(
                 {
-                    "command": "stop",
+                    "command": command,
                     "strategy": req.match_info["strategy"],
                     "engine": req.match_info["engine"]
-                },
+                } | data,
                 "moonship:message:request",
                 "moonship:message:response"))
 
-    def _handle_engine_command_rsp(self, rsp: dict[str, any]) -> StreamResponse:
+    def handle_msg_bus_response(self, rsp: dict[str, any]) -> StreamResponse:
         result = rsp.get("result")
         if result is not None:
             match result:
                 case MessageResult.SUCCESS.value:
-                    return self._ok()
+                    return self.ok()
                 case MessageResult.MISSING_OR_INVALID_PARAMETER.value:
-                    return self._bad_request(f"Missing or invalid: {rsp.get('parameter')}")
-        return self._error_response()
+                    return self.bad_request(f"Missing or bad {rsp.get('parameter')} field")
+        return self.error_response()
 
     async def on_prepare_response(self, req: Request, rsp: StreamResponse) -> None:
         rsp.headers["Server"] = "Moonship"
@@ -216,7 +235,7 @@ class APIService(Service):
         if req.path != "/login":
             session = await aiohttp_session.get_session(req)
             if session.new:
-                return self._unauthorized("Access denied")
+                return self.unauthorized("Access denied")
         return await handler(req)
 
     @aiohttp.web.middleware
@@ -228,33 +247,33 @@ class APIService(Service):
             response = await handler(req)
             if response.status < 400 or response.content_type == "application/json":
                 return response
-            return self._error_response(response.reason, response.status)
+            return self.error_response(response.reason, response.status)
         except HTTPException as e:
-            return self._error_response(e.reason, e.status)
+            return self.error_response(e.reason, e.status)
         except TimeoutError:
-            return self._timeout()
-        except Exception as e:
-            logger.exception("Internal server error", exc_info=e)
-            return self._error_response()
+            return self.timeout()
+        except Exception:
+            logger.exception("Internal server error")
+            return self.error_response()
 
-    def _ok(self, json_rsp_body: dict = None) -> Response:
+    def ok(self, json_rsp_body: dict = None) -> Response:
         if json_rsp_body is not None:
             return aiohttp.web.json_response(json_rsp_body, status=200)
         return Response(status=200)
 
-    def _bad_request(self, error: str) -> Response:
-        return self._error_response(error, 400)
+    def bad_request(self, error: str) -> Response:
+        return self.error_response(error, 400)
 
-    def _unauthorized(self, error: str) -> Response:
-        return self._error_response(error, 401)
+    def unauthorized(self, error: str) -> Response:
+        return self.error_response(error, 401)
 
-    def _not_found(self, error: str) -> Response:
-        return self._error_response(error, 404)
+    def not_found(self, error: str) -> Response:
+        return self.error_response(error, 404)
 
-    def _timeout(self) -> Response:
-        return self._error_response("Operation timeout", 504)
+    def timeout(self) -> Response:
+        return self.error_response("Operation timeout", 504)
 
-    def _error_response(self, error: str = "Internal server error", status: int = 500) -> Response:
+    def error_response(self, error: str = "Internal server error", status: int = 500) -> Response:
         return aiohttp.web.json_response(
             {
                 "error": error,
@@ -262,18 +281,18 @@ class APIService(Service):
             },
             status=status)
 
-    def _get_port(self, config: Config) -> int:
+    def get_port(self, config: Config) -> int:
         port = config.get("moonship.api.port", 8080)
         if isinstance(port, str) and len(port) > 1 and port.startswith("$"):
             try:
                 port = int(os.environ[port[1:]])
             except KeyError:
-                raise StartUpException(f"No {port[1:]} environment variable set")
+                raise ConfigException(f"No {port[1:]} environment variable set")
         if not isinstance(port, int) or port < 0 or port > 65535:
-            raise StartUpException(f"Invalid API port configuration: {port}")
+            raise ConfigException(f"Invalid API port configuration: {port}")
         return port
 
-    def _get_ssl_context(self, config: Config) -> Optional[ssl.SSLContext]:
+    def get_ssl_context(self, config: Config) -> Optional[ssl.SSLContext]:
         ssl_context = None
         ssl_cert = config.get("moonship.api.ssl_cert")
         ssl_key = config.get("moonship.api.ssl_key")
