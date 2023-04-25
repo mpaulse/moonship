@@ -41,6 +41,26 @@ __all__ = [
 class SharedCacheBulkOp(abc.ABC):
 
     @abc.abstractmethod
+    async def list_push_head(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+        pass
+
+    @abc.abstractmethod
+    async def list_push_tail(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+        pass
+
+    @abc.abstractmethod
+    async def list_pop_head(self, storage_key: str) -> "SharedCacheBulkOp":
+        pass
+
+    @abc.abstractmethod
+    async def list_pop_tail(self, storage_key: str) -> "SharedCacheBulkOp":
+        pass
+
+    @abc.abstractmethod
+    async def list_remove(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+        pass
+
+    @abc.abstractmethod
     def set_add(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
         pass
 
@@ -76,6 +96,30 @@ class SharedCache(abc.ABC):
 
     @abc.abstractmethod
     async def close(self) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def list_push_head(self, storage_key: str, element: str) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def list_push_tail(self, storage_key: str, element: str) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def list_pop_head(self, storage_key: str) -> str:
+        pass
+
+    @abc.abstractmethod
+    async def list_pop_tail(self, storage_key: str) -> str:
+        pass
+
+    @abc.abstractmethod
+    async def list_remove(self, storage_key: str, element: str) -> None:
+        pass
+
+    @abc.abstractmethod
+    async def list_get_elements(self, storage_key: str) -> list[str]:
         pass
 
     @abc.abstractmethod
