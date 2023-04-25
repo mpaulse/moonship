@@ -133,9 +133,10 @@ class APIService(Service):
     async def get_strategies(self, req: Request) -> StreamResponse:
         query_params = req.query
         strategies = []
-        for engine in list(await self.shared_cache.set_get_elements("moonship:engines")):
-            for name in list(await self.shared_cache.set_get_elements(f"moonship:{engine}:strategies")):
-                strategy = await self._get_strategy(name, engine)
+        for engine in set(await self.shared_cache.list_get_elements("moonship:engines")):
+            engine_id = await self._get_engine_id(engine)
+            for name in await self.shared_cache.set_get_elements(f"moonship:{engine}:{engine_id}:strategies"):
+                strategy = await self._get_strategy(name, engine, engine_id)
                 if strategy is not None:
                     match = True
                     for param, value in query_params.items():
@@ -146,14 +147,21 @@ class APIService(Service):
                         strategies.append(strategy)
         return self._ok({"strategies": strategies})
 
+    async def _get_engine_id(self, engine: str) -> str:
+        return await self.shared_cache.list_get_tail(f"moonship:{engine}:ids")
+
     async def get_strategy(self, req: Request) -> StreamResponse:
-        strategy = await self._get_strategy(req.match_info["strategy"], req.match_info["engine"])
+        engine = req.match_info["engine"]
+        strategy = await self._get_strategy(
+            req.match_info["strategy"],
+            engine,
+            await self._get_engine_id(engine))
         if strategy is None:
             return self._not_found("No such strategy")
         return self._ok(strategy)
 
-    async def _get_strategy(self, name: str, engine: str) -> Optional[dict[str, any]]:
-        key = f"moonship:{engine}:strategy:{name}"
+    async def _get_strategy(self, name: str, engine: str, engine_id: str) -> Optional[dict[str, any]]:
+        key = f"moonship:{engine}:{engine_id}:strategy:{name}"
         strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
         if len(strategy) == 0:
             return None

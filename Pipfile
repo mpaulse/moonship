@@ -8,6 +8,7 @@ aiohttp = "*"
 aiohttp_session = { version = "*", extras = ["aioredis"] }
 aiolimiter = "*"
 bcrypt = "*"
+nanoid = "*"
 pyyaml = "*"
 redis = "*"
 sortedcontainers = "*"

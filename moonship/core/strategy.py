@@ -40,11 +40,13 @@ class Strategy:
             self,
             name: str,
             engine_name: str,
+            engine_id: str,
             algo_class: type,
             markets: dict[str, Market],
             shared_cache: SharedCache) -> None:
         self._name = name
         self._engine_name = engine_name
+        self._engine_id = engine_id
         self._markets = markets
         self._shared_cache = shared_cache
         self._logger = logging.getLogger(f"moonship.strategy.{name}")
@@ -98,7 +100,9 @@ class Strategy:
     async def update_shared_cache(self, data: dict[str, str]) -> None:
         if self._shared_cache is not None:
             try:
-                await self._shared_cache.map_put(f"moonship:{self._engine_name}:strategy:{self.name}", data)
+                await self._shared_cache.map_put(
+                    f"moonship:{self._engine_name}:{self._engine_id}:strategy:{self.name}",
+                    data)
             except Exception as e:
                 self.logger.exception("Failed to update shared cache", exc_info=e)
 

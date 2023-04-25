@@ -87,24 +87,24 @@ class RedisSharedCacheBulkOp(SharedCacheBulkOp):
     def __init__(self, pipeline: aioredis.client.Pipeline):
         self.pipeline = pipeline
 
-    async def list_push_head(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+    def list_push_head(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
         self.pipeline.lpush(storage_key, element)
         return self
 
-    async def list_push_tail(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+    def list_push_tail(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
         self.pipeline.rpush(storage_key, element)
         return self
 
-    async def list_pop_head(self, storage_key: str) -> "SharedCacheBulkOp":
+    def list_pop_head(self, storage_key: str) -> "SharedCacheBulkOp":
         self.pipeline.lpop(storage_key)
         return self
 
-    async def list_pop_tail(self, storage_key: str) -> "SharedCacheBulkOp":
+    def list_pop_tail(self, storage_key: str) -> "SharedCacheBulkOp":
         self.pipeline.rpop(storage_key)
         return self
 
-    async def list_remove(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
-        self.pipeline.lrem(storage_key, 0, element)
+    def list_remove(self, storage_key: str, element: str, count: int = None) -> "SharedCacheBulkOp":
+        self.pipeline.lrem(storage_key, 0 if count is None else count, element)
         return self
 
     def set_add(self, storage_key: str, element: str) -> SharedCacheBulkOp:
@@ -154,8 +154,8 @@ class RedisSharedCache(SharedCache):
     async def list_pop_tail(self, storage_key: str) -> str:
         return await redis.rpop(storage_key)
 
-    async def list_remove(self, storage_key: str, element: str) -> None:
-        await redis.lrem(storage_key, 0, element)
+    async def list_remove(self, storage_key: str, element: str, count: int = None) -> None:
+        await redis.lrem(storage_key, 0 if count is None else count, element)
 
     async def list_get_head(self, storage_key: str) -> str:
         return await redis.lindex(storage_key, 0)
