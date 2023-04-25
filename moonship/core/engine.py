@@ -26,6 +26,7 @@ import asyncio
 import importlib
 import io
 import logging
+import nanoid
 
 from datetime import timezone
 from moonship.core import *
@@ -156,6 +157,7 @@ class TradingEngine(Service):
         self.config = config
         self.markets: dict[str, MarketManager] = {}
         self.strategies: dict[str, Strategy] = {}
+        self.id = nanoid.generate(size=8)
         self.name = config.get("moonship.engine.name")
         if not isinstance(self.name, str):
             self.name = DEFAULT_ENGINE_NAME
@@ -201,32 +203,24 @@ class TradingEngine(Service):
             self.strategies[strategy_name] = Strategy(
                 strategy_name,
                 self.name,
+                self.id,
                 algo_class,
                 markets,
                 self.shared_cache)
 
     async def start(self) -> None:
-        start_time = utc_timestamp_now_msec()
         if self.shared_cache is not None:
             await self.shared_cache.open()
-            if self.name == DEFAULT_ENGINE_NAME:
-                engines = await self.shared_cache.set_get_elements("moonship:engines")
-                if self.name in engines:
-                    for k in range(2, len(engines) + 2):
-                        n = f"{DEFAULT_ENGINE_NAME}{k}"
-                        if n not in engines:
-                            self.name = n
-                            break
             b = self.shared_cache.start_bulk() \
-                .set_add("moonship:engines", self.name) \
-                .map_put(f"moonship:{self.name}", {"start_time": str(start_time)})
+                .list_push_tail("moonship:engines", self.name) \
+                .list_push_tail(f"moonship:{self.name}:ids", self.id)
             for strategy_name in self.strategies.keys():
-                b.set_add(f"moonship:{self.name}:strategies", strategy_name)
-                b.map_put(f"moonship:{self.name}:strategy:{strategy_name}", {"active": "false"})
+                b.set_add(f"moonship:{self.name}:{self.id}:strategies", strategy_name)
+                b.map_put(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}", {"active": "false"})
                 strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
                 if isinstance(strategy_config, Config):
                     b.map_put(
-                        f"moonship:{self.name}:strategy:{strategy_name}:config",
+                        f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config",
                         self._flatten_dict(strategy_config.dict))
             await b.execute()
         if self.message_bus is not None:
@@ -259,12 +253,12 @@ class TradingEngine(Service):
                 logger.info(f"Closed {market.market.name} market")
         if self.shared_cache is not None:
             b = self.shared_cache.start_bulk() \
-                .set_remove("moonship:engines", self.name) \
-                .delete(f"moonship:{self.name}:strategies") \
-                .delete(f"moonship:{self.name}")
+                .list_remove("moonship:engines", self.name, count=1) \
+                .list_remove(f"moonship:{self.name}:ids", self.id) \
+                .delete(f"moonship:{self.name}:{self.id}:strategies")
             for strategy_name in self.strategies.keys():
-                b.delete(f"moonship:{self.name}:strategy:{strategy_name}")
-                b.delete(f"moonship:{self.name}:strategy:{strategy_name}:config")
+                b.delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}")
+                b.delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config")
             await b.execute()
             await self.shared_cache.close()
 
