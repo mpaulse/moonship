@@ -157,6 +157,12 @@ class RedisSharedCache(SharedCache):
     async def list_remove(self, storage_key: str, element: str) -> None:
         await redis.lrem(storage_key, 0, element)
 
+    async def list_get_head(self, storage_key: str) -> str:
+        return await redis.lindex(storage_key, 0)
+
+    async def list_get_tail(self, storage_key: str) -> str:
+        return await redis.lindex(storage_key, -1)
+
     async def list_get_elements(self, storage_key: str) -> list[str]:
         return await redis.lrange(storage_key, 0, -1)
 

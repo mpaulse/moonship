@@ -119,6 +119,14 @@ class SharedCache(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def list_get_head(self, storage_key: str) -> str:
+        pass
+
+    @abc.abstractmethod
+    async def list_get_tail(self, storage_key: str) -> str:
+        pass
+
+    @abc.abstractmethod
     async def list_get_elements(self, storage_key: str) -> list[str]:
         pass
 
