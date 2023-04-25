@@ -296,4 +296,4 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
 
     def _storage_key(self, session: Union[str, aiohttp_session.Session]) -> str:
         session_id = session if isinstance(session, str) else session.identity
-        return f"moonship.session.{session_id}"
+        return f"moonship:session:{session_id}"

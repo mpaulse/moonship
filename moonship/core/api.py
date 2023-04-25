@@ -133,8 +133,8 @@ class APIService(Service):
     async def get_strategies(self, req: Request) -> StreamResponse:
         query_params = req.query
         strategies = []
-        for engine in list(await self.shared_cache.set_get_elements("moonship.engines")):
-            for name in list(await self.shared_cache.set_get_elements(f"moonship.{engine}.strategies")):
+        for engine in list(await self.shared_cache.set_get_elements("moonship:engines")):
+            for name in list(await self.shared_cache.set_get_elements(f"moonship:{engine}:strategies")):
                 strategy = await self._get_strategy(name, engine)
                 if strategy is not None:
                     match = True
@@ -153,13 +153,13 @@ class APIService(Service):
         return self._ok(strategy)
 
     async def _get_strategy(self, name: str, engine: str) -> Optional[dict[str, any]]:
-        key = f"moonship.{engine}.strategies.{name}"
+        key = f"moonship:{engine}:strategy:{name}"
         strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
         if len(strategy) == 0:
             return None
         strategy["name"] = name
         strategy["engine"] = engine
-        strategy["config"] = await self.shared_cache.map_get_entries(f"{key}.config")
+        strategy["config"] = await self.shared_cache.map_get_entries(f"{key}:config")
         markets = strategy["config"].get("markets")
         if isinstance(markets, str):
             strategy["config"]["markets"] = markets.split(",")
@@ -173,8 +173,8 @@ class APIService(Service):
                     "strategy": req.match_info["strategy"],
                     "engine": req.match_info["engine"]
                 },
-                "moonship.message.request",
-                "moonship.message.response"))
+                "moonship:message:request",
+                "moonship:message:response"))
 
     async def stop_strategy(self, req: Request) -> StreamResponse:
         return self._handle_engine_command_rsp(
@@ -184,8 +184,8 @@ class APIService(Service):
                     "strategy": req.match_info["strategy"],
                     "engine": req.match_info["engine"]
                 },
-                "moonship.message.request",
-                "moonship.message.response"))
+                "moonship:message:request",
+                "moonship:message:response"))
 
     def _handle_engine_command_rsp(self, rsp: dict[str, any]) -> StreamResponse:
         result = rsp.get("result")
