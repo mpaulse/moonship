@@ -38,7 +38,7 @@ architecture of a typical deployment.
   a non-cloud environment.
 - A **Shared Cache** stores runtime state information sent by the Trading Engine. For example, the trading strategies'
   statuses, current profit/loss, etc.
-- The [REST API](doc/api.html) is used to send control commands to the Trading Engines via the **Message Bus** and to query the
+- The [REST API](https://mpaulse.com/moonship/doc/api.html) is used to send control commands to the Trading Engines via the **Message Bus** and to query the
   state information in the Shared Cache.
 - The **Monitor** watches the Shared Cache and sends alerts (emails) when various configurable conditions are
   triggered. For example, when a trading strategy has reached its stop-loss and has become inactive.
@@ -82,7 +82,7 @@ propagate to the rest of the application (e.g. to the Strategies) via event hand
 
 ## API Usage
 
-See the [API documentation](doc/api.html).
+See the [API documentation](https://mpaulse.com/moonship/doc/api.html).
 
 ## Configuration
 
