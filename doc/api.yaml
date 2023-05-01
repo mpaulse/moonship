@@ -13,7 +13,7 @@ paths:
     post:
       tags:
         - Authentication
-      summary: Logs into the API.
+      summary: Login
       description:
         Logs into the API. If successful, a session token
         will be returned in the response body and as a cookie. This must
@@ -82,7 +82,7 @@ paths:
     get:
       tags:
         - Authentication
-      summary: Logs out of the API.
+      summary: Logout
       description:
         Logs out of the API.
       parameters:
@@ -110,7 +110,7 @@ paths:
     get:
       tags:
         - Strategies
-      summary: Gets a list of trading strategy information.
+      summary: Get strategies list
       description:
         Gets a list of trading strategy information. Query parameters
         can be used to filter the returned list based on certain criteria,
@@ -150,7 +150,7 @@ paths:
     get:
       tags:
         - Strategies
-      summary: Gets information about the specified trading strategy.
+      summary: Get strategy
       description:
         Gets information about the specified trading strategy.
       parameters:
@@ -192,7 +192,7 @@ paths:
     post:
       tags:
         - Strategies
-      summary: Adds a new trading strategy.
+      summary: Add strategy
       description:
         Adds a new trading strategy. The request body must contain the strategy
         configuration properties specified in the same manner as they would be configured
@@ -253,7 +253,7 @@ paths:
     patch:
       tags:
         - Strategies
-      summary: Updates the specified trading strategy.
+      summary: Update strategy
       description:
         Updates the specified trading strategy. If the strategy is currently active,
         the trading engine will attempt to stop it gracefully first before applying the
@@ -320,7 +320,7 @@ paths:
     delete:
       tags:
         - Strategies
-      summary: Removes the specified trading strategy.
+      summary: Remove strategy
       description:
         Removes the specified trading strategy. If the strategy is currently active,
         the trading engine will attempt to stop it gracefully first.
@@ -369,7 +369,7 @@ paths:
     post:
       tags:
         - Strategies
-      summary: Starts the specified trading strategy.
+      summary: Start strategy
       description:
         Starts the specified trading strategy if it is not currently active.
       parameters:
@@ -417,7 +417,7 @@ paths:
     post:
       tags:
         - Strategies
-      summary: Stops the specified trading strategy.
+      summary: Stop strategy
       description:
         Stops the specified trading strategy if it is currently active.
       parameters:
