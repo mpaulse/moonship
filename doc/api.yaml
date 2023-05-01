@@ -1,0 +1,574 @@
+openapi: 3.0.3
+info:
+  title: Moonship API
+  description: Moonship API Specification
+  version: 1.3.0
+tags:
+  - name: Authentication
+    description: Authentication and session management
+  - name: Strategies
+    description: Trading strategy management
+paths:
+  /login:
+    post:
+      tags:
+        - Authentication
+      summary: Logs into the API.
+      description:
+        Logs into the API. If successful, a session token
+        will be returned in the response body and as a cookie. This must
+        be returned to the API either in the Authorization request header
+        as a bearer token or as a cookie to authorize future requests.
+      requestBody:
+        description: The user credentials
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user:
+                  type: string
+                  required: true
+                  example: admin
+                password:
+                  type: string
+                  required: true
+                  example: hello
+      responses:
+        200:
+          description: Success
+          headers:
+            Set-Cookie:
+              description: The session token cookie
+              schema:
+                type: string
+              example: __Host-session_token=52895534080d4460a45dc5e37fb0f8d5; HttpOnly; Path=/; SameSite=Strict; Secure
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_token:
+                    description: The session token
+                    type: string
+                    required: true
+                    example: 52895534080d4460a45dc5e37fb0f8d5
+        400:
+          description: Missing or invalid request body or parameters
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing or bad user field
+                status: 400
+        401:
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Invalid user or password
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /logout:
+    get:
+      tags:
+        - Authentication
+      summary: Logs out of the API.
+      description:
+        Logs out of the API.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+      responses:
+        200:
+          description: Success
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /strategies:
+    get:
+      tags:
+        - Strategies
+      summary: Gets a list of trading strategy information.
+      description:
+        Gets a list of trading strategy information. Query parameters
+        can be used to filter the returned list based on certain criteria,
+        e.g. "/strategies?engine=main&active=true". Query parameter names must match
+        strategy information field names returned in the response.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  strategies:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StrategyInfo"
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /strategies/{engine}/{strategy}:
+    get:
+      tags:
+        - Strategies
+      summary: Gets information about the specified trading strategy.
+      description:
+        Gets information about the specified trading strategy.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+        - $ref: "#/components/parameters/EnginePathParameter"
+        - $ref: "#/components/parameters/StrategyPathParameter"
+      responses:
+        200:
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StrategyInfo"
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        404:
+          description: Trading strategy not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: No such strategy
+                status: 404
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      tags:
+        - Strategies
+      summary: Adds a new trading strategy.
+      description:
+        Adds a new trading strategy. The request body must contain the strategy
+        configuration properties specified in the same manner as they would be configured
+        in the Moonship application configuration file.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+        - $ref: "#/components/parameters/EnginePathParameter"
+        - $ref: "#/components/parameters/StrategyPathParameter"
+      requestBody:
+        description: The strategy configuration properties specified in the same manner as they would be configured in the Moonship application configuration file
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - config
+              properties:
+                config:
+                  $ref: "#/components/schemas/StrategyConfigInfo"
+      responses:
+        200:
+          description: Success
+        400:
+          description: Invalid request body or a strategy with the specified name already exists within the trading engine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing or bad strategy field
+                status: 400
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        504:
+          description: The trading strategy could not be added within a specific time limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Operation timeout
+                status: 504
+    patch:
+      tags:
+        - Strategies
+      summary: Updates the specified trading strategy.
+      description:
+        Updates the specified trading strategy. If the strategy is currently active,
+        the trading engine will attempt to stop it gracefully first before applying the
+        update, and then restart it afterwards. The request body must contain one or more
+        strategy configuration properties specified in the same manner as they would be
+        configured in the Moonship application configuration file.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+        - $ref: "#/components/parameters/EnginePathParameter"
+        - $ref: "#/components/parameters/StrategyPathParameter"
+      requestBody:
+        description: One or more strategy configuration properties specified in the same manner as they would be configured in the Moonship application configuration file
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - config
+              properties:
+                config:
+                  $ref: "#/components/schemas/StrategyConfigInfo"
+            example:
+              config:
+                trade_quantity: 0.02
+                max_drawdown: 70
+      responses:
+        200:
+          description: Success
+        400:
+          description: Invalid request body or a strategy with the specified name does not exist in the trading engine
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing or bad strategy field
+                status: 400
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        504:
+          description: The trading strategy could not be updated within a specific time limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Operation timeout
+                status: 504
+    delete:
+      tags:
+        - Strategies
+      summary: Removes the specified trading strategy.
+      description:
+        Removes the specified trading strategy. If the strategy is currently active,
+        the trading engine will attempt to stop it gracefully first.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+        - $ref: "#/components/parameters/EnginePathParameter"
+        - $ref: "#/components/parameters/StrategyPathParameter"
+      responses:
+        200:
+          description: Success
+        400:
+          description: Invalid strategy name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing or bad strategy field
+                status: 400
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        504:
+          description: The trading strategy could not be removed within a specific time limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Operation timeout
+                status: 504
+  /strategies/{engine}/{strategy}/start:
+    post:
+      tags:
+        - Strategies
+      summary: Starts the specified trading strategy.
+      description:
+        Starts the specified trading strategy if it is not currently active.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+        - $ref: "#/components/parameters/EnginePathParameter"
+        - $ref: "#/components/parameters/StrategyPathParameter"
+      responses:
+        200:
+          description: Success
+        400:
+          description: Invalid strategy name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing or bad strategy field
+                status: 400
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        504:
+          description: The trading strategy could not be started within a specific time limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Operation timeout
+                status: 504
+  /strategies/{engine}/{strategy}/stop:
+    post:
+      tags:
+        - Strategies
+      summary: Stops the specified trading strategy.
+      description:
+        Stops the specified trading strategy if it is currently active.
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationHeader"
+        - $ref: "#/components/parameters/SessionTokenCookie"
+        - $ref: "#/components/parameters/EnginePathParameter"
+        - $ref: "#/components/parameters/StrategyPathParameter"
+      responses:
+        200:
+          description: Success
+        400:
+          description: Invalid strategy name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Missing or bad strategy field
+                status: 400
+        401:
+          description: Access denied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Access denied
+                status: 401
+        500:
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        504:
+          description: The trading strategy could not be stopped within a specific time limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: Operation timeout
+                status: 504
+components:
+  parameters:
+    AuthorizationHeader:
+      name: Authorization
+      in: header
+      description: The session bearer token. Required if the session token cookie is not sent.
+      schema:
+        type: string
+      example: "Bearer: 52895534080d4460a45dc5e37fb0f8d5"
+    EnginePathParameter:
+      name: Engine
+      in: path
+      description: The trading engine name
+      schema:
+        type: string
+      example: main
+    SessionTokenCookie:
+      name: Cookie
+      in: header
+      description: The session token cookie. Required if the Authorization bearer token is not sent.
+      schema:
+        type: string
+      example: __Host-session_token=52895534080d4460a45dc5e37fb0f8d5
+    StrategyPathParameter:
+      name: Strategy
+      in: path
+      description: The strategy name
+      schema:
+        type: string
+      example: BuyHighSellLow
+  schemas:
+    Error:
+      description: Error response
+      type: object
+      properties:
+        error:
+          description: Error message
+          type: string
+          required: true
+          example: Internal server error
+        status:
+          description: HTTP status code
+          type: integer
+          required: true
+          example: 500
+    StrategyInfo:
+      description: Trading strategy information
+      type: object
+      required:
+        - config
+      properties:
+        name:
+          description: The strategy name
+          type: string
+          required: true
+          example: BuyHighSellLow
+        engine:
+          description: The trading engine in which the strategy is deployed
+          type: string
+          required: true
+          example: main
+        active:
+          description: Indicates whether the strategy is currently running or not
+          type: boolean
+          required: true
+          example: true
+        config:
+          $ref: "#/components/schemas/StrategyConfigInfo"
+      example:
+        name: BuyHighSellLow
+        engine: main
+        active: true
+        start_time: 1682927095094
+        last_trade_profit: -19.67
+        total_profit: -38.4
+        config:
+            algo: moonship.myalgos.MoProfits
+            auto_start: true
+            trade_quantity: 0.02
+            max_drawdown: 70
+            markets:
+              - ShadyCryptoExchange-BTCUSDT
+    StrategyConfigInfo:
+      description: The trading strategy configuration
+      type: object
+      properties:
+        algo:
+          description: The trading algo class name
+          type: string
+          required: true
+          example: moonship.myalgos.MoProfits
+        auto_start:
+          description: Indicates whether the strategy should be started automatically
+          type: boolean
+          example: true
+        markets:
+          description: A list of one or more markets in which the strategy operates
+          type: array
+          items:
+            minItems: 1
+            description: The market name, as defined in the Moonship application configuration
+            type: string
+            required: true
+            example: ShadyCryptoExchange-BTCUSDT
+      example:
+        algo: moonship.myalgos.MoProfits
+        auto_start: true
+        trade_quantity: 0.02
+        max_drawdown: 70
+        markets:
+          - ShadyCryptoExchange-BTCUSDT
