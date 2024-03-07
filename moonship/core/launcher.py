@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -32,6 +32,7 @@ import signal
 from moonship.core import __version__, Config, StartUpException, ShutdownException
 from moonship.core.api import APIService
 from moonship.core.engine import TradingEngine
+from moonship.core.service import Service
 
 __all__ = [
     "launch"
@@ -94,25 +95,45 @@ def handle_signal(signum, frame):
 def get_args() -> argparse.Namespace:
     arg_parser = argparse.ArgumentParser(
         prog="moonship",
-        description="Moonship trading engine.")
+        description=f"Moonship trading engine\nVersion: {__version__}\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
     arg_parser.add_argument(
         "-a",
         dest="run_api_service",
         action="store_const",
         const=True,
         default=False,
-        help="run the moonship API service instead of the trading engine")
+        help="run the Moonship API service (defaults to the trading engine service if no services are specified)")
     arg_parser.add_argument(
         "-c",
         dest="config_file",
         action="store",
         default="config.xml",
         help="the path to the moonship config file (defaults to ./config.xml)")
+    arg_parser.add_argument(
+        "-e",
+        dest="run_engine_service",
+        action="store_const",
+        const=True,
+        default=False,
+        help="run the Moonship trading engine service (the default if no other services are specified)")
+    arg_parser.add_argument(
+        "-v",
+        dest="show_version",
+        action="store_const",
+        const=True,
+        default=False,
+        help="show the version and exit")
     return arg_parser.parse_args()
 
 
 def launch():
     args = get_args()
+
+    if args.show_version:
+        print(f"Moonship {__version__}")
+        exit(0)
+
     config = Config.load_from_file(args.config_file)
     configure_logging(config)
 
@@ -127,13 +148,17 @@ def launch():
                                              /_/      
         """)
     logger.info(f"Version {__version__}")
-    service = None
+    services: list[Service] = []
     event_loop = asyncio.get_event_loop()
     event_loop.set_exception_handler(lambda loop, context: handle_error(context))
     signal.signal(signal.SIGTERM, handle_signal)
     try:
-        service = APIService(config) if args.run_api_service else TradingEngine(config)
-        event_loop.create_task(service.start())
+        if args.run_api_service:
+            services.append(APIService(config))
+        if args.run_engine_service or len(services) == 0:
+            services.append(TradingEngine(config))
+        for service in services:
+            event_loop.create_task(service.start())
         event_loop.run_forever()
     except StartUpException:
         logger.exception("Start-up failed!")
@@ -143,9 +168,9 @@ def launch():
         pass
     finally:
         logger.info("Shutting down...")
-        if service is not None:
+        for service in services:
             event_loop.run_until_complete(service.stop())
-        event_loop.run_until_complete(asyncio.sleep(0.5))
+        event_loop.run_until_complete(asyncio.sleep(1))
         event_loop.close()
         logger.info("Thank you for flying!")
 
