@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -26,7 +26,7 @@ import asyncio
 import logging
 
 from moonship.core import *
-from moonship.core.ipc import SharedCache
+from moonship.core.ipc import SharedCacheDataAccessor
 from typing import Union
 
 __all__ = [
@@ -43,7 +43,7 @@ class Strategy:
             engine_id: str,
             algo_class: type,
             markets: dict[str, Market],
-            shared_cache: SharedCache) -> None:
+            shared_cache: SharedCacheDataAccessor) -> None:
         self._name = name
         self._engine_name = engine_name
         self._engine_id = engine_id
@@ -100,9 +100,11 @@ class Strategy:
     async def update_shared_cache(self, data: dict[str, str]) -> None:
         if self._shared_cache is not None:
             try:
-                await self._shared_cache.map_put(
-                    f"moonship:{self._engine_name}:{self._engine_id}:strategy:{self.name}",
-                    data)
+                await self._shared_cache.update_strategy(
+                    self.name,
+                    data,
+                    self._engine_name,
+                    self._engine_id)
             except Exception:
                 self.logger.exception("Failed to update shared cache")
 

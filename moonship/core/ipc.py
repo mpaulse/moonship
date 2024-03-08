@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -28,13 +28,14 @@ import uuid
 
 from enum import Enum
 from moonship.core import *
-from typing import Awaitable, Callable, Union
+from typing import Awaitable, Callable, Optional, Union
 
 __all__ = [
     "MessageBus",
     "MessageResult",
     "SharedCache",
-    "SharedCacheBulkOp"
+    "SharedCacheBulkOp",
+    "SharedCacheDataAccessor"
 ]
 
 
@@ -167,12 +168,109 @@ class SharedCache(abc.ABC):
         pass
 
 
+class SharedCacheDataAccessor:
+
+    def __init__(self, shared_cache: SharedCache) -> None:
+        self.shared_cache = shared_cache
+
+    async def open(self) -> None:
+        await self.shared_cache.open()
+
+    async def close(self) -> None:
+        await self.shared_cache.close()
+
+    async def add_strategy(self, name, config: dict[str, str], engine: str, engine_id: str) -> None:
+        if engine_id is None:
+            engine_id = await self.get_engine_id(engine)
+        b = self.shared_cache.start_bulk()
+        self._add_strategy(name, config, engine, engine_id, b)
+        await b.execute()
+
+    def _add_strategy(self, name, config: dict[str, str], engine: str, engine_id: str, op: SharedCacheBulkOp) -> None:
+        op \
+            .set_add(f"moonship:{engine}:{engine_id}:strategies", name) \
+            .map_put(f"moonship:{engine}:{engine_id}:strategy:{name}", {"active": "false"})  \
+            .map_put(f"moonship:{engine}:{engine_id}:strategy:{name}:config", config)
+
+    async def remove_strategy(self, name: str, engine: str, engine_id: str = None) -> None:
+        if engine_id is None:
+            engine_id = await self.get_engine_id(engine)
+        b = self.shared_cache.start_bulk()
+        self._remove_strategy(name, engine, engine_id, b)
+        await b.execute()
+
+    def _remove_strategy(self, name: str, engine: str, engine_id: str, op: SharedCacheBulkOp):
+        op \
+            .delete(f"moonship:{engine}:{engine_id}:strategy:{name}") \
+            .delete(f"moonship:{engine}:{engine_id}:strategy:{name}:config")
+
+    async def get_strategy(self, name: str, engine: str, engine_id: str = None) -> Optional[dict[str, any]]:
+        if engine_id is None:
+            engine_id = await self.get_engine_id(engine)
+        key = f"moonship:{engine}:{engine_id}:strategy:{name}"
+        strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
+        if len(strategy) == 0:
+            return None
+        strategy["name"] = name
+        strategy["engine"] = engine
+        strategy["config"] = await self.shared_cache.map_get_entries(f"{key}:config")
+        markets = strategy["config"].get("markets")
+        if isinstance(markets, str):
+            strategy["config"]["markets"] = markets.split(",")
+        return strategy
+
+    async def get_strategies(self, criteria: dict[str, str] = None) -> list[dict[str, any]]:
+        if criteria is None:
+            criteria = {}
+        strategies = []
+        for engine in set(await self.shared_cache.list_get_elements("moonship:engines")):
+            engine_id = await self.get_engine_id(engine)
+            for name in await self.shared_cache.set_get_elements(f"moonship:{engine}:{engine_id}:strategies"):
+                strategy = await self.get_strategy(name, engine, engine_id)
+                if strategy is not None:
+                    match = True
+                    for param, value in criteria.items():
+                        if strategy.get(param) != value:
+                            match = False
+                            break
+                    if match:
+                        strategies.append(strategy)
+        return strategies
+
+    async def update_strategy(self, name: str, data: dict[str, str], engine: str, engine_id: str = None) -> None:
+        if engine_id is None:
+            engine_id = await self.get_engine_id(engine)
+        await self.shared_cache.map_put(
+            f"moonship:{engine}:{engine_id}:strategy:{name}",
+            data)
+
+    async def add_engine(self, name: str, id: str, strategies_config: dict[str, dict[str, str]]) -> None:
+        await self.shared_cache.open()
+        b = self.shared_cache.start_bulk() \
+            .list_push_tail("moonship:engines", name) \
+            .list_push_tail(f"moonship:{name}:ids", id)
+        for strategy_name, strategy_config in strategies_config.items():
+            self._add_strategy(strategy_name, strategy_config, name, id, b)
+        await b.execute()
+
+    async def remove_engine(self, name: str, id: str, strategies: list[str]) -> None:
+        b = self.shared_cache.start_bulk() \
+            .list_remove("moonship:engines", name, count=1) \
+            .list_remove(f"moonship:{name}:ids", id) \
+            .delete(f"moonship:{name}:{id}:strategies")
+        for strategy_name in strategies:
+            self._remove_strategy(strategy_name, name, id, b)
+        await b.execute()
+
+    async def get_engine_id(self, engine: str) -> str:
+        return await self.shared_cache.list_get_tail(f"moonship:{engine}:ids")
+
+
 class MessageBus(abc.ABC):
 
     def __init__(self, config: Config) -> None:
         self.config = config
         self._recv_futures: dict[str, list[asyncio.Future]] = {}
-        pass
 
     @abc.abstractmethod
     async def start(self) -> None:
