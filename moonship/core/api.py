@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -65,7 +65,7 @@ class APIService(Service):
         self.password = password.encode("utf-8")
         self.web_app_runner: Optional[aiohttp.web.AppRunner] = None
         self.session_store: Optional[RedisSessionStore] = None
-        self.shared_cache = RedisSharedCache(config)
+        self.shared_cache = SharedCacheDataAccessor(RedisSharedCache(config))
         self.message_bus = RedisMessageBus(config)
 
     async def start(self) -> None:
@@ -134,47 +134,16 @@ class APIService(Service):
         return self.ok()
 
     async def get_strategies(self, req: Request) -> StreamResponse:
-        query_params = req.query
-        strategies = []
-        for engine in set(await self.shared_cache.list_get_elements("moonship:engines")):
-            engine_id = await self.get_engine_id(engine)
-            for name in await self.shared_cache.set_get_elements(f"moonship:{engine}:{engine_id}:strategies"):
-                strategy = await self._get_strategy(name, engine, engine_id)
-                if strategy is not None:
-                    match = True
-                    for param, value in query_params.items():
-                        if strategy.get(param) != value:
-                            match = False
-                            break
-                    if match:
-                        strategies.append(strategy)
-        return self.ok({"strategies": strategies})
-
-    async def get_engine_id(self, engine: str) -> str:
-        return await self.shared_cache.list_get_tail(f"moonship:{engine}:ids")
+        criteria: dict[str, str] = { param: value for param, value in req.query.items() }
+        return self.ok({"strategies": await self.shared_cache.get_strategies(criteria)})
 
     async def get_strategy(self, req: Request) -> StreamResponse:
-        engine = req.match_info["engine"]
-        strategy = await self._get_strategy(
+        strategy = await self.shared_cache.get_strategy(
             req.match_info["strategy"],
-            engine,
-            await self.get_engine_id(engine))
+            req.match_info["engine"])
         if strategy is None:
             return self.not_found("No such strategy")
         return self.ok(strategy)
-
-    async def _get_strategy(self, name: str, engine: str, engine_id: str) -> Optional[dict[str, any]]:
-        key = f"moonship:{engine}:{engine_id}:strategy:{name}"
-        strategy: dict[str, any] = await self.shared_cache.map_get_entries(key)
-        if len(strategy) == 0:
-            return None
-        strategy["name"] = name
-        strategy["engine"] = engine
-        strategy["config"] = await self.shared_cache.map_get_entries(f"{key}:config")
-        markets = strategy["config"].get("markets")
-        if isinstance(markets, str):
-            strategy["config"]["markets"] = markets.split(",")
-        return strategy
 
     async def add_strategy(self, req: Request) -> StreamResponse:
         return await self.configure_strategy(req, "add")

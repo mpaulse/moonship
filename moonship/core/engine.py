@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -161,10 +161,10 @@ class TradingEngine(Service):
         self.name = config.get("moonship.engine.name")
         if not isinstance(self.name, str):
             self.name = DEFAULT_ENGINE_NAME
-        self.shared_cache: Optional[SharedCache] = None
+        self.shared_cache: Optional[SharedCacheDataAccessor] = None
         self.message_bus: Optional[MessageBus] = None
         if config.get("moonship.redis") is not None:
-            self.shared_cache = RedisSharedCache(config)
+            self.shared_cache = SharedCacheDataAccessor(RedisSharedCache(config))
             self.message_bus = RedisMessageBus(config)
         self.init_markets(config)
         self.init_strategies(config)
@@ -218,28 +218,16 @@ class TradingEngine(Service):
     async def start(self) -> None:
         if self.shared_cache is not None:
             await self.shared_cache.open()
-            b = self.shared_cache.start_bulk() \
-                .list_push_tail("moonship:engines", self.name) \
-                .list_push_tail(f"moonship:{self.name}:ids", self.id)
-            for strategy_name in self.strategies.keys():
-                self.add_strategy_cache_info(strategy_name, b)
-            await b.execute()
+            await self.shared_cache.add_engine(
+                self.name,
+                self.id,
+                { s: self.get_cacheable_strategy_config(s) for s in self.strategies.keys() })
         if self.message_bus is not None:
             await self.message_bus.start()
             await self.message_bus.subscribe("moonship:message:request", self.on_msg_received)
         for strategy in self.strategies.values():
             if strategy.auto_start:
                 await self.start_strategy(strategy.name)
-
-    def add_strategy_cache_info(self, strategy_name, op: SharedCacheBulkOp) -> None:
-        op \
-            .set_add(f"moonship:{self.name}:{self.id}:strategies", strategy_name) \
-            .map_put(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}", {"active": "false"})
-        strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
-        if isinstance(strategy_config, Config):
-            op.map_put(
-                f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config",
-                self.flatten_dict(strategy_config.dict))
 
     async def start_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
@@ -248,7 +236,11 @@ class TradingEngine(Service):
                 market = self.markets[market_name]
                 if market.market.status == MarketStatus.CLOSED:
                     await market.open()
-                    logger.info(f"Opened {market_name} market")
+                    if market.market.status == MarketStatus.OPEN:
+                        logger.info(f"Opened {market_name} market")
+                    else:
+                        logger.warning(f"Could not open {market_name} market")
+                        await market.close()
             await strategy.start()
             logger.info(f"Started {strategy.name} strategy")
 
@@ -262,19 +254,8 @@ class TradingEngine(Service):
                 await market.close()
                 logger.info(f"Closed {market.market.name} market")
         if self.shared_cache is not None:
-            b = self.shared_cache.start_bulk() \
-                .list_remove("moonship:engines", self.name, count=1) \
-                .list_remove(f"moonship:{self.name}:ids", self.id) \
-                .delete(f"moonship:{self.name}:{self.id}:strategies")
-            for strategy_name in self.strategies.keys():
-                self.delete_strategy_cache_info(strategy_name, b)
-            await b.execute()
+            await self.shared_cache.remove_engine(self.name, self.id, [ s for s in self.strategies.keys() ])
             await self.shared_cache.close()
-
-    def delete_strategy_cache_info(self, strategy_name: str, op: SharedCacheBulkOp):
-        op \
-            .delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}") \
-            .delete(f"moonship:{self.name}:{self.id}:strategy:{strategy_name}:config")
 
     async def stop_strategy(self, name: str) -> None:
         strategy = self.strategies.get(name)
@@ -340,9 +321,11 @@ class TradingEngine(Service):
                     auto_start = True
             self.strategies[name] = strategy
             self.config = new_app_config
-            b = self.shared_cache.start_bulk()
-            self.add_strategy_cache_info(name, b)
-            await b.execute()
+            await self.shared_cache.add_strategy(
+                name,
+                self.get_cacheable_strategy_config(name),
+                self.name,
+                self.id)
             if auto_start:
                 await self.start_strategy(name)
             return MessageResult.SUCCESS, {}
@@ -357,9 +340,7 @@ class TradingEngine(Service):
         await self.stop_strategy(strategy)
         del self.strategies[strategy]
         self.config.remove(f"moonship.strategies.{strategy}")
-        b = self.shared_cache.start_bulk()
-        self.delete_strategy_cache_info(strategy, b)
-        await b.execute()
+        await self.shared_cache.remove_strategy(strategy, self.name, self.id)
         return MessageResult.SUCCESS, {}
 
     async def on_start_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
@@ -375,6 +356,12 @@ class TradingEngine(Service):
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
         await self.stop_strategy(strategy)
         return MessageResult.SUCCESS, {}
+
+    def get_cacheable_strategy_config(self, strategy_name: str) -> dict[str, str]:
+        strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
+        if isinstance(strategy_config, Config):
+            return self.flatten_dict(strategy_config.dict)
+        return {}
 
     def flatten_dict(self, object: dict, result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
         if result is None:
