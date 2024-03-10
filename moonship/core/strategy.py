@@ -27,6 +27,7 @@ import logging
 
 from moonship.core import *
 from moonship.core.ipc import SharedCacheDataAccessor
+from datetime import datetime, timezone
 from typing import Union
 
 __all__ = [
@@ -81,12 +82,14 @@ class Strategy:
         self._algo.init_config(app_config)
 
     async def start(self) -> None:
-        start_time = utc_timestamp_now_msec()
         if not self._active:
             for market in self._markets.values():
                 market.subscribe(self._algo)
             self._active = True
-            await self.update_shared_cache({"active": "true", "start_time": str(start_time)})
+            await self.update_shared_cache({
+                "active": True,
+                "start_time": datetime.now(timezone.utc).isoformat()
+            })
             asyncio.create_task(self._algo.on_started())
 
     async def stop(self) -> None:
@@ -95,10 +98,11 @@ class Strategy:
             await self._algo.on_stopped()
             for market in self.markets.values():
                 market.unsubscribe(self._algo)
-            await self.update_shared_cache({"active": "false", "start_time": "0"})
+            await self.update_shared_cache({"active": False})
 
-    async def update_shared_cache(self, data: dict[str, str]) -> None:
+    async def update_shared_cache(self, data: dict[str, any]) -> None:
         if self._shared_cache is not None:
+            data["update_time"] = datetime.now(timezone.utc).isoformat()
             try:
                 await self._shared_cache.update_strategy(
                     self.name,

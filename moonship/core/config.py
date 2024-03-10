@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -89,6 +89,9 @@ class Config:
 
     def __iter__(self) -> Iterator[any]:
         return iter(self._dict)
+
+    def __contains__(self, key) -> bool:
+        return not self.get(key) is None
 
     def keys(self) -> KeysView:
         return self._dict.keys()

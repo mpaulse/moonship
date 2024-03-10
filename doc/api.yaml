@@ -533,7 +533,8 @@ components:
         name: BuyHighSellLow
         engine: main
         active: true
-        start_time: 1682927095094
+        start_time: "2024-03-10T11:53:35.593848+00:00"
+        update_time: "2024-03-10T11:59:12.328174+00:00"
         last_trade_profit: -19.67
         total_profit: -38.4
         config:

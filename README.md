@@ -16,6 +16,7 @@ Fly me **To The Moon!**
 - Makes trading decisions based on live market data.
 - Provides a REST API service to monitor trading activity and control application behaviour of
   one or more moonship instances.
+- Provides a monitor service supporting email alerts based on configurable trigger conditions.
 - Supported cryptocurrency exchanges:
   - Binance
   - Luno
@@ -64,7 +65,7 @@ propagate to the rest of the application (e.g. to the Strategies) via event hand
 
 ## Usage
 
-- To run the Trading Engine service:
+- To run **only** the Trading Engine service:
 
   > moonship -c *CONFIG_FILE*
 
@@ -72,13 +73,29 @@ propagate to the rest of the application (e.g. to the Strategies) via event hand
 
   > python -m moonship -c *CONFIG_FILE*
 
-- To run the API service:
+- To run **only** the API service:
 
   > moonship -a -c *CONFIG_FILE*
 
   or
 
   > python -m moonship -a -c *CONFIG_FILE*
+
+- To run **only** the monitor service:
+
+  > moonship -m -c *CONFIG_FILE*
+
+  or
+
+  > python -m moonship -m -c *CONFIG_FILE*
+
+- To run **multiple** the services in a single process (e.g. the API service and monitor):
+
+  > moonship -a -m -c *CONFIG_FILE*
+
+  or
+
+  > python -m moonship -a -m -c *CONFIG_FILE*
 
 ## API Usage
 
@@ -125,6 +142,20 @@ The tables below describe the various configuration properties.
 | moonship.api.user                 | The username used to log into the API.                                                                                                                                                                                                                                                                                                                                                                                                  |
 | moonship.api.ssl_cert             | The file (in PEM format) containing the API SSL certificate.                                                                                                                                                                                                                                                                                                                                                                            |
 | moonship.api.ssl_key              | The file containing the API SSL certificate private key.                                                                                                                                                                                                                                                                                                                                                                                |
+
+### Monitor Properties
+
+| Property                                      | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+|-----------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| moonship.monitor.poll_interval                | The amount of time in seconds to wait before polling the shared cache for information updates. <br/><br/>Defaults to 5.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| moonship.monitor.alerts.*ALERT_NAME*.condition | The trigger condition for the *ALERT_NAME* alert expressed using the [Rule Engine syntax](https://zerosteiner.github.io/rule-engine/syntax.html). It operates on the runtime strategy information stored in the shared cache (the strategy objects returned by the [GET /strategies](https://mpaulse.com/moonship/doc/api.html#tag/Strategies/paths/~1strategies/get)  API call).<br/><br/>**Example**:<br/> The following condition matches all strategies that have become inactive for whatever reason (e.g. after hitting a stop-loss):<br/>``not active and start_time != null`` |  
+| moonship.monitor.alerts.*ALERT_NAME*.actions  | The action or list of actions to execute when the *ALERT_NAME* alert triggers. <br/><br/>Defaults to an empty list. If no actions are specified, a warning is logged at start-up and only an informational message is logged when the alert triggers. <br/><br/>Supported actions: <ul><li>email</li></ul>                                                                                                                                                                                                                                                                            |
+| moonship.monitor.email.from                   | The sender email address to use when sending alert emails.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| moonship.monitor.email.password               | The password to use to log into the SMTP server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| moonship.monitor.email.smtp_host              | The SMTP server hostname or IP address to connect to when sending alert emails.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| moonship.monitor.email.smtp_port              | The SMTP server port to connect to when sending alert emails.<br/><br/>Defaults to 587.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| moonship.monitor.email.to                     | The receipient email address or list of receipient email addresses to use when sending alert emails.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| moonship.monitor.email.username               | The username to use to log into the SMTP server.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 ### Redis Properties
 
