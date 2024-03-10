@@ -32,6 +32,7 @@ import signal
 from moonship.core import __version__, Config, StartUpException, ShutdownException
 from moonship.core.api import APIService
 from moonship.core.engine import TradingEngine
+from moonship.core.monitor import Monitor
 from moonship.core.service import Service
 
 __all__ = [
@@ -118,6 +119,13 @@ def get_args() -> argparse.Namespace:
         default=False,
         help="run the Moonship trading engine service (the default if no other services are specified)")
     arg_parser.add_argument(
+        "-m",
+        dest="run_monitor_service",
+        action="store_const",
+        const=True,
+        default=False,
+        help="run the Moonship monitor service (defaults to the trading engine service if no services are specified)")
+    arg_parser.add_argument(
         "-v",
         dest="show_version",
         action="store_const",
@@ -155,6 +163,8 @@ def launch():
     try:
         if args.run_api_service:
             services.append(APIService(config))
+        if args.run_monitor_service:
+            services.append(Monitor(config))
         if args.run_engine_service or len(services) == 0:
             services.append(TradingEngine(config))
         for service in services:

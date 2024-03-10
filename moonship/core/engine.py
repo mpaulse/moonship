@@ -24,7 +24,6 @@
 
 import asyncio
 import importlib
-import io
 import logging
 import nanoid
 
@@ -221,7 +220,7 @@ class TradingEngine(Service):
             await self.shared_cache.add_engine(
                 self.name,
                 self.id,
-                { s: self.get_cacheable_strategy_config(s) for s in self.strategies.keys() })
+                {s: self.config.get(f"moonship.strategies.{s}") for s in self.strategies.keys()})
         if self.message_bus is not None:
             await self.message_bus.start()
             await self.message_bus.subscribe("moonship:message:request", self.on_msg_received)
@@ -254,7 +253,7 @@ class TradingEngine(Service):
                 await market.close()
                 logger.info(f"Closed {market.market.name} market")
         if self.shared_cache is not None:
-            await self.shared_cache.remove_engine(self.name, self.id, [ s for s in self.strategies.keys() ])
+            await self.shared_cache.remove_engine(self.name, self.id, [s for s in self.strategies.keys()])
             await self.shared_cache.close()
 
     async def stop_strategy(self, name: str) -> None:
@@ -323,7 +322,7 @@ class TradingEngine(Service):
             self.config = new_app_config
             await self.shared_cache.add_strategy(
                 name,
-                self.get_cacheable_strategy_config(name),
+                self.config.get(f"moonship.strategies.{name}"),
                 self.name,
                 self.id)
             if auto_start:
@@ -356,26 +355,6 @@ class TradingEngine(Service):
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
         await self.stop_strategy(strategy)
         return MessageResult.SUCCESS, {}
-
-    def get_cacheable_strategy_config(self, strategy_name: str) -> dict[str, str]:
-        strategy_config = self.config.get(f"moonship.strategies.{strategy_name}")
-        if isinstance(strategy_config, Config):
-            return self.flatten_dict(strategy_config.dict)
-        return {}
-
-    def flatten_dict(self, object: dict, result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
-        if result is None:
-            result = {}
-        for k, v in object.items():
-            if isinstance(v, dict):
-                self.flatten_dict(v, result, f"{k}.")
-            elif isinstance(v, list):
-                s = io.StringIO()
-                print(*v, sep=",", end="", file=s)
-                result[f"{key_prefix}{k}"] = s.getvalue()
-            else:
-                result[f"{key_prefix}{k}"] = str(v)
-        return result
 
     def load_class(self, key: str, config: Config, expected_type: type) -> type:
         class_name = config.get(key)
