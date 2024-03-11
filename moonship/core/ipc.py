@@ -192,7 +192,7 @@ class SharedCacheDataAccessor:
         config = self._to_cache_map_entries(config.dict) if config is not None else {}
         op \
             .set_add(f"moonship:{engine}:{engine_id}:strategies", name) \
-            .map_put(f"moonship:{engine}:{engine_id}:strategy:{name}", {"active": "false"})  \
+            .map_put(f"moonship:{engine}:{engine_id}:strategy:{name}", self._to_cache_map_entries({"active": False}))  \
             .map_put(f"moonship:{engine}:{engine_id}:strategy:{name}:config", config)
 
     async def remove_strategy(self, name: str, engine: str, engine_id: str = None) -> None:

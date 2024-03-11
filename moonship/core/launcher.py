@@ -180,8 +180,6 @@ def launch():
         logger.info("Shutting down...")
         for service in services:
             event_loop.run_until_complete(service.stop())
-        event_loop.run_until_complete(asyncio.sleep(1))
-        event_loop.close()
         logger.info("Thank you for flying!")
 
 
