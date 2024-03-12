@@ -86,7 +86,7 @@ f"""Hello,
 The {alert.name} alert was triggered for the {strategy_data['name']} strategy running on {strategy_data['engine']}.
 
 Alert time:
-{datetime.datetime.now(datetime.timezone.utc)} UTC
+{datetime.datetime.now(datetime.timezone.utc)}
 
 Strategy data:
 {json.dumps(strategy_data, indent=4)}
