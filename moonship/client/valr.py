@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -37,7 +37,8 @@ from moonship.client.web import *
 from typing import Optional, Union
 
 API_BASE_URL = "https://api.valr.com"
-API_VERSION = "v1"
+API_VERSION_1 = "v1"
+API_VERSION_2 = "v2"
 STREAM_BASE_URL = "wss://api.valr.com"
 
 @dataclass
@@ -58,7 +59,10 @@ class ValrClient(AbstractWebClient):
         self.api_secret = app_config.get("moonship.valr.api_secret")
         if not isinstance(self.api_secret, str):
             raise ConfigException("VALR API secret not configured")
-        headers = {"X-VALR-API-KEY": api_key}
+        headers = {
+            "Content-Type": "application/json",
+            "X-VALR-API-KEY": api_key
+        }
         self.async_tasks: list[asyncio.Task] = []
         super().__init__(
             market_name,
@@ -80,13 +84,13 @@ class ValrClient(AbstractWebClient):
                 try:
                     status = MarketStatus.CLOSED
                     async with self.public_api_limiter:
-                        async with self.http_session.get(f"{API_BASE_URL}/{API_VERSION}/public/status") as rsp:
+                        async with self.http_session.get(f"{API_BASE_URL}/{API_VERSION_1}/public/status") as rsp:
                             await self.handle_error_response(rsp)
                             s = (await rsp.json()).get("status")
                             if s == "online":
                                 status = MarketStatus.OPEN
                     async with self.public_api_limiter:
-                        async with self.http_session.get(f"{API_BASE_URL}/{API_VERSION}/public/pairs") as rsp:
+                        async with self.http_session.get(f"{API_BASE_URL}/{API_VERSION_1}/public/pairs") as rsp:
                             await self.handle_error_response(rsp)
                             pairs = await rsp.json()
                             for pair_info in pairs:
@@ -114,7 +118,7 @@ class ValrClient(AbstractWebClient):
         try:
             async with self.public_api_limiter:
                 async with self.http_session.get(
-                        f"{API_BASE_URL}/{API_VERSION}/public/{self.market.symbol}/marketsummary") as rsp:
+                        f"{API_BASE_URL}/{API_VERSION_1}/public/{self.market.symbol}/marketsummary") as rsp:
                     await self.handle_error_response(rsp)
                     ticker = await rsp.json()
                     return Ticker(
@@ -132,7 +136,7 @@ class ValrClient(AbstractWebClient):
             before_id = None
             for i in range(0, limit, 100):
                 async with self.limiter:
-                    path = f"/{API_VERSION}/marketdata/{self.market.symbol}/tradehistory?limit=100"
+                    path = f"/{API_VERSION_1}/marketdata/{self.market.symbol}/tradehistory?limit=100"
                     if before_id is not None:
                         path += f"&beforeId={before_id}"
                     async with self.http_session.get(
@@ -174,7 +178,7 @@ class ValrClient(AbstractWebClient):
                 request["quoteAmount"] = to_amount_str(order.quantity)
         request = json.dumps(request, indent=None)
         try:
-            path = f"/{API_VERSION}/orders/{order_type}"
+            path = f"/{API_VERSION_2}/orders/{order_type}"
             async with self.limiter:
                 async with self.http_session.post(
                         f"{API_BASE_URL}{path}",
@@ -182,26 +186,14 @@ class ValrClient(AbstractWebClient):
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
                     order.id = (await rsp.json()).get("id")
+                    return order.id
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name) from e
-        await asyncio.sleep(1)
-        order_details = None
-        try:
-            order_details = await self.get_order(order.id)
-        except Exception as e:
-            # Sometimes get a HTTP status code 400 with message "Invalid order" when retrieving
-            # the order details, even through the order has been successfully placed. Assume the
-            # order is pending.
-            self.logger.exception(f"Failed to confirm placement of order: {order.id}", exc_info=e)
-        if order_details is not None and order_details.status == OrderStatus.REJECTED:
-            error_code = self._get_error_code(order_details.failed_reason)
-            raise MarketException("Failed to place order", self.market.name, error_code)
-        return order.id
 
     async def get_order(self, order_id: str) -> ValrFullOrderDetails:
         try:
             async with self.limiter:
-                path = f"/{API_VERSION}/orders/{self.market.symbol}/orderid/{order_id}"
+                path = f"/{API_VERSION_1}/orders/{self.market.symbol}/orderid/{order_id}"
                 async with self.http_session.get(
                         f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("GET", path)) as rsp:
@@ -228,15 +220,22 @@ class ValrClient(AbstractWebClient):
         }
         try:
             async with self.limiter:
-                path = f"/{API_VERSION}/orders/order"
+                path = f"/{API_VERSION_2}/orders/order"
                 request = json.dumps(request, indent=None)
                 async with self.http_session.delete(
                         f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("DELETE", path, request),
                         data=request) as rsp:
+                    if rsp.status == 404:
+                        return False
                     await self.handle_error_response(rsp)
-                    return False  # Cancellation confirmation returned via stream or get_order() call
+                    return rsp.status == 200
         except Exception as e:
+            if isinstance(e, HttpResponseException) \
+                    and e.status == 400 \
+                    and isinstance(e.body, dict) \
+                    and e.body.get("message") == "Could not find the order to cancel":
+                return False
             raise MarketException("Failed to cancel order", self.market.name) from e
 
     def _get_auth_headers(self, http_method: str, request_path: str, request_body: str = None) -> dict[str, str]:
