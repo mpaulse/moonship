@@ -293,10 +293,10 @@ class ValrClient(AbstractWebClient):
                     self._on_order_book_stream_event(data)
                 elif event == "NEW_TRADE":
                     self._on_trade_stream_event(data)
-                elif event == "ORDER_STATUS_UPDATE":
-                    self._on_order_status_update(data)
-                elif event == "FAILED_CANCEL_ORDER":
-                    self._on_order_cancellation_failed(data)
+                # elif event == "ORDER_STATUS_UPDATE":
+                #    self._on_order_status_update(data)
+                # elif event == "FAILED_CANCEL_ORDER":
+                #    self._on_order_cancellation_failed(data)
 
     def _on_order_book_stream_event(self, data: dict[str, any]) -> None:
         bids = self._get_orders_from_stream(OrderAction.BUY, data.get("Bids"))
