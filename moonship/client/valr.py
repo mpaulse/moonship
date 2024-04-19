@@ -188,7 +188,7 @@ class ValrClient(AbstractWebClient):
                     order.id = (await rsp.json()).get("id")
                     return order.id
         except Exception as e:
-            raise MarketException("Failed to place order", self.market.name) from e
+            raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
 
     async def get_order(self, order_id: str) -> ValrFullOrderDetails:
         try:
@@ -425,10 +425,13 @@ class ValrClient(AbstractWebClient):
             return OrderStatus.FILLED
         return OrderStatus.PENDING
 
-    def _get_error_code(self, failed_reason: str) -> MarketErrorCode:
-        failed_reason = failed_reason.lower()
-        if failed_reason.startswith("post only cancelled"):
-            return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
-        elif failed_reason.startswith("insufficient balance"):
-            return MarketErrorCode.INSUFFICIENT_FUNDS
+    def _get_error_code(self, e: Exception) -> MarketErrorCode:
+        if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
+            match e.body.get("code"):
+                case -1:
+                    return MarketErrorCode.NO_SUCH_ORDER
+                case -6:
+                    return MarketErrorCode.INSUFFICIENT_FUNDS
+                case -19:
+                    return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
         return MarketErrorCode.UNKNOWN
