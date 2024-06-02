@@ -173,18 +173,18 @@ class SharedCache(abc.ABC):
 class SharedCacheDataAccessor:
 
     def __init__(self, shared_cache: SharedCache) -> None:
-        self.shared_cache = shared_cache
+        self._shared_cache = shared_cache
 
     async def open(self) -> None:
-        await self.shared_cache.open()
+        await self._shared_cache.open()
 
     async def close(self) -> None:
-        await self.shared_cache.close()
+        await self._shared_cache.close()
 
     async def add_strategy(self, name, config: Optional[Config], engine: str, engine_id: str) -> None:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
-        b = self.shared_cache.start_bulk()
+        b = self._shared_cache.start_bulk()
         self._add_strategy(name, config, engine, engine_id, b)
         await b.execute()
 
@@ -198,7 +198,7 @@ class SharedCacheDataAccessor:
     async def remove_strategy(self, name: str, engine: str, engine_id: str = None) -> None:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
-        b = self.shared_cache.start_bulk()
+        b = self._shared_cache.start_bulk()
         self._remove_strategy(name, engine, engine_id, b)
         await b.execute()
 
@@ -210,22 +210,22 @@ class SharedCacheDataAccessor:
     async def get_strategy(self, name: str, engine: str, engine_id: str = None) -> Optional[dict[str, any]]:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
-        key = f"moonship:{engine}:{engine_id}:strategy:{name}"
-        strategy: dict[str, any] = self._from_cache_map_entries(await self.shared_cache.map_get_entries(key))
+        key = f"{engine_id}:strategy:{name}"
+        strategy: dict[str, any] = await self.map_get_entries(key, engine)
         if len(strategy) == 0:
             return None
         strategy["name"] = name
         strategy["engine"] = engine
-        strategy["config"] = self._from_cache_map_entries(await self.shared_cache.map_get_entries(f"{key}:config"))
+        strategy["config"] = await self.map_get_entries(f"{key}:config", engine)
         return strategy
 
     async def get_strategies(self, criteria: dict[str, str] = None) -> list[dict[str, any]]:
         if criteria is None:
             criteria = {}
         strategies = []
-        for engine in set(await self.shared_cache.list_get_elements("moonship:engines")):
+        for engine in set(await self._shared_cache.list_get_elements("moonship:engines")):
             engine_id = await self.get_engine_id(engine)
-            for name in await self.shared_cache.set_get_elements(f"moonship:{engine}:{engine_id}:strategies"):
+            for name in await self._shared_cache.set_get_elements(f"moonship:{engine}:{engine_id}:strategies"):
                 strategy = await self.get_strategy(name, engine, engine_id)
                 if strategy is not None:
                     match = True
@@ -244,13 +244,11 @@ class SharedCacheDataAccessor:
     async def update_strategy(self, name: str, data: dict[str, any], engine: str, engine_id: str = None) -> None:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
-        await self.shared_cache.map_put(
-            f"moonship:{engine}:{engine_id}:strategy:{name}",
-            self._to_cache_map_entries(data))
+        await self.map_put(f"{engine_id}:strategy:{name}", data, engine)
 
     async def add_engine(self, name: str, id: str, strategies_config: dict[str, Optional[Config]]) -> None:
-        await self.shared_cache.open()
-        b = self.shared_cache.start_bulk() \
+        await self._shared_cache.open()
+        b = self._shared_cache.start_bulk() \
             .list_push_tail("moonship:engines", name) \
             .list_push_tail(f"moonship:{name}:ids", id)
         for strategy_name, strategy_config in strategies_config.items():
@@ -258,7 +256,7 @@ class SharedCacheDataAccessor:
         await b.execute()
 
     async def remove_engine(self, name: str, id: str, strategies: list[str]) -> None:
-        b = self.shared_cache.start_bulk() \
+        b = self._shared_cache.start_bulk() \
             .list_remove("moonship:engines", name, count=1) \
             .list_remove(f"moonship:{name}:ids", id) \
             .delete(f"moonship:{name}:{id}:strategies")
@@ -267,7 +265,16 @@ class SharedCacheDataAccessor:
         await b.execute()
 
     async def get_engine_id(self, engine: str) -> str:
-        return await self.shared_cache.list_get_tail(f"moonship:{engine}:ids")
+        return await self._shared_cache.list_get_tail(f"moonship:{engine}:ids")
+
+    async def map_put(self, storage_key: str, data: dict[str, any], engine: str) -> None:
+        await self._shared_cache.map_put(
+            f"moonship:{engine}:{storage_key}",
+            self._to_cache_map_entries(data))
+
+    async def map_get_entries(self, storage_key: str, engine: str) -> dict[str, any]:
+        return self._from_cache_map_entries(
+            await self._shared_cache.map_get_entries(f"moonship:{engine}:{storage_key}"))
 
     def _to_cache_map_entries(self, object: dict[str, any], result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
         if result is None:
