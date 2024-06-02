@@ -60,6 +60,18 @@ class Strategy:
         return self._name
 
     @property
+    def engine_name(self) -> str:
+        return self._engine_name
+
+    @property
+    def engine_id(self) -> str:
+        return self._engine_id
+
+    @property
+    def shared_cache(self) -> SharedCacheDataAccessor:
+        return self._shared_cache
+
+    @property
     def markets(self) -> dict[str, Market]:
         return self._markets
 
