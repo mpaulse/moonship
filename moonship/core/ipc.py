@@ -312,6 +312,9 @@ class SharedCacheDataAccessor:
                     obj[key] = value
         return result
 
+    async def delete(self, storage_key: str, engine: str) -> None:
+        await self._shared_cache.delete(f"moonship:{engine}:{storage_key}")
+
 
 class MessageBus(abc.ABC):
 
