@@ -162,7 +162,8 @@ class ValrClient(AbstractWebClient):
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
             "pair": self.market.symbol,
-            "side": order.action.name
+            "side": order.action.name,
+            "allowMargin": order.enable_margin if order.account_name is not None else False
         }
         if isinstance(order, LimitOrder):
             order_type = "limit"
@@ -182,7 +183,7 @@ class ValrClient(AbstractWebClient):
             async with self.limiter:
                 async with self.http_session.post(
                         f"{API_BASE_URL}{path}",
-                        headers=self._get_auth_headers("POST", path, request),
+                        headers=self._get_auth_headers("POST", path, request, order.account_name),
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
                     order.id = (await rsp.json()).get("id")
@@ -238,19 +239,29 @@ class ValrClient(AbstractWebClient):
                 return False
             raise MarketException("Failed to cancel order", self.market.name) from e
 
-    def _get_auth_headers(self, http_method: str, request_path: str, request_body: str = None) -> dict[str, str]:
+    def _get_auth_headers(
+            self,
+            http_method: str,
+            request_path: str,
+            request_body: str = None,
+            account_name: str = None) -> dict[str, str]:
         timestamp = str(utc_timestamp_now_msec())
         msg = timestamp + http_method.upper() + request_path
         if request_body is not None:
             msg += request_body
+        if account_name is not None:
+            msg += account_name
         signature = hmac.new(
             bytes(self.api_secret, encoding="utf-8"),
             bytes(msg, encoding="utf-8"),
             hashlib.sha512).hexdigest()
-        return {
+        headers = {
             "X-VALR-SIGNATURE": signature,
             "X-VALR-TIMESTAMP": timestamp
         }
+        if account_name is not None:
+            headers["X-VALR-SUB-ACCOUNT-ID"] = account_name
+        return headers
 
     async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
         auth_headers = self._get_auth_headers("GET", params.url[len(STREAM_BASE_URL):])

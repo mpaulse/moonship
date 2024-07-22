@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -113,6 +113,8 @@ class OrderStatus(Enum):
 class AbstractOrder(abc.ABC):
     action: OrderAction
     id: str = None
+    account_name: str = None
+    enable_margin: bool = False
 
 
 @dataclass
@@ -138,6 +140,8 @@ class FullOrderDetails(AbstractOrder):
     quantity_filled: Amount = Amount(0)
     quote_quantity_filled: Amount = Amount(0)
     creation_timestamp: Timestamp = None
+    account_name: str = None
+    enable_margin: bool = False
 
 
 class Rounding(Enum):
