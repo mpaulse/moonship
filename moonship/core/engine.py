@@ -178,9 +178,9 @@ class TradingEngine(Service):
                 raise ConfigException(f"No symbol configured for {market_name} market")
             cls = self.load_class("client", market_config, MarketClient)
             client = cls(market_name, config)
-            account_name = market_config.get("account_name")
-            if account_name is not None and not isinstance(account_name, str):
-                raise ConfigException(f"Invalid account name configured for {market_name} market")
+            account = market_config.get("account")
+            if account is not None:
+                account = str(account)
             enable_margin = market_config.get("enable_margin", False)
             if enable_margin is not None and not isinstance(enable_margin, bool):
                 raise ConfigException(f"Invalid enable_margin parameter configured for {market_name} market")
@@ -192,7 +192,7 @@ class TradingEngine(Service):
                     market_name,
                     symbol,
                     client,
-                    account_name=account_name,
+                    account=account,
                     enable_margin=enable_margin),
                 max_recent_trade_list_size)
 

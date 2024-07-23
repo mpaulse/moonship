@@ -255,7 +255,7 @@ class Market:
         self._name = name
         self._symbol = symbol
         self._client = client
-        self._account_name: str = kwargs.get("account_name")
+        self._account: str = kwargs.get("account")
         self._enable_margin: bool = kwargs.get("enable_margin", False)
         self._base_asset = symbol[0:3] if len(symbol) == 6 else symbol
         self._base_asset_precision = 0
@@ -348,8 +348,8 @@ class Market:
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
-        if self._account_name is not None and order.account_name is None:
-            order.account_name = self._account_name
+        if self._account is not None and order.account is None:
+            order.account = self._account
         if self._enable_margin and not order.enable_margin:
             order.enable_margin = self._enable_margin
         if self.logger.isEnabledFor(logging.INFO):
@@ -372,7 +372,7 @@ class Market:
                 quantity=order.quantity if isinstance(order, LimitOrder) or order.is_base_quantity else Amount(0),
                 quote_quantity=order.quantity if isinstance(order, MarketOrder) and not order.is_base_quantity else Amount(0),
                 limit_price=order.price if isinstance(order, LimitOrder) else Amount(0),
-                account_name=order.account_name,
+                account=order.account,
                 enable_margin=order.enable_margin)
         return order_id
 
@@ -412,7 +412,7 @@ class Market:
             if updated_order_details.quote_quantity == 0 and pending_order_details.quote_quantity > 0:
                 # If the get_order() call does not provide the original quote quantity
                 updated_order_details.quote_quantity = pending_order_details.quote_quantity
-            updated_order_details.account_name = pending_order_details.account_name
+            updated_order_details.account = pending_order_details.account
             updated_order_details.enable_margin = pending_order_details.enable_margin
             self._remove_completed_pending_order(updated_order_details)
             self.raise_event(OrderStatusUpdateEvent(order=updated_order_details))

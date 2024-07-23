@@ -113,7 +113,7 @@ class OrderStatus(Enum):
 class AbstractOrder(abc.ABC):
     action: OrderAction
     id: str = None
-    account_name: str = None
+    account: str = None
     enable_margin: bool = False
 
 
@@ -140,7 +140,7 @@ class FullOrderDetails(AbstractOrder):
     quantity_filled: Amount = Amount(0)
     quote_quantity_filled: Amount = Amount(0)
     creation_timestamp: Timestamp = None
-    account_name: str = None
+    account: str = None
     enable_margin: bool = False
 
 

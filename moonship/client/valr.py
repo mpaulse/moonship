@@ -163,7 +163,7 @@ class ValrClient(AbstractWebClient):
         request = {
             "pair": self.market.symbol,
             "side": order.action.name,
-            "allowMargin": order.enable_margin if order.account_name is not None else False
+            "allowMargin": order.enable_margin
         }
         if isinstance(order, LimitOrder):
             order_type = "limit"
@@ -183,7 +183,7 @@ class ValrClient(AbstractWebClient):
             async with self.limiter:
                 async with self.http_session.post(
                         f"{API_BASE_URL}{path}",
-                        headers=self._get_auth_headers("POST", path, request, order.account_name),
+                        headers=self._get_auth_headers("POST", path, request, order.account),
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
                     order.id = (await rsp.json()).get("id")
@@ -244,13 +244,13 @@ class ValrClient(AbstractWebClient):
             http_method: str,
             request_path: str,
             request_body: str = None,
-            account_name: str = None) -> dict[str, str]:
+            account: str = None) -> dict[str, str]:
         timestamp = str(utc_timestamp_now_msec())
         msg = timestamp + http_method.upper() + request_path
         if request_body is not None:
             msg += request_body
-        if account_name is not None:
-            msg += account_name
+        if account is not None:
+            msg += account
         signature = hmac.new(
             bytes(self.api_secret, encoding="utf-8"),
             bytes(msg, encoding="utf-8"),
@@ -259,8 +259,8 @@ class ValrClient(AbstractWebClient):
             "X-VALR-SIGNATURE": signature,
             "X-VALR-TIMESTAMP": timestamp
         }
-        if account_name is not None:
-            headers["X-VALR-SUB-ACCOUNT-ID"] = account_name
+        if account is not None:
+            headers["X-VALR-SUB-ACCOUNT-ID"] = account
         return headers
 
     async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
