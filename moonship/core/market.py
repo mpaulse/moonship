@@ -1,4 +1,4 @@
-#  Copyright (c) 2022, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -357,15 +357,12 @@ class Market:
                 log_msg += f"{to_amount_str(order.quantity)} @ {to_amount_str(order.price)}"
             self._log(logging.INFO, log_msg)
         order_id = await self._client.place_order(order)
-        self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
-        self._pending_orders[order_id] = \
-            FullOrderDetails(
-                id=order.id,
-                symbol=self.symbol,
-                action=order.action,
-                quantity=order.quantity if isinstance(order, LimitOrder) or order.is_base_quantity else Amount(0),
-                quote_quantity=order.quantity if isinstance(order, MarketOrder) and not order.is_base_quantity else Amount(0),
-                limit_price=order.price if isinstance(order, LimitOrder) else Amount(0))
+        placed_order = await self.get_order(order_id)
+        if placed_order.status == OrderStatus.PENDING:
+            self._log(logging.INFO, f"{placed_order.action.name} order {placed_order.id} {placed_order.status.name}")
+            self._pending_orders[placed_order.id] = placed_order
+        else:
+            self.raise_event(OrderStatusUpdateEvent(order=placed_order))
         return order_id
 
     async def get_order(self, order_id: str) -> FullOrderDetails:

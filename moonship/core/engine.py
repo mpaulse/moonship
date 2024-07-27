@@ -133,6 +133,7 @@ class MarketManager(MarketSubscriber):
                     order.status = OrderStatus.FILLED
                 else:
                     order.status = OrderStatus.PARTIALLY_FILLED
+            logger.debug(f"Trade executed for pending order {pending_order_id}")
             await self.market._handle_pending_order_update(pending_order_id)
         else:  # In case trade events for pending orders did not arrive or were lost
             pending_order_ids: list[str] = []
