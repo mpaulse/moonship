@@ -386,6 +386,8 @@ class Market:
         if order is not None:
             return order.status
         order = await self.get_order(order_id)
+        if order.status == OrderStatus.CANCELLED or order.status == OrderStatus.CANCELLED_AND_PARTIALLY_FILLED:
+            self.raise_event(OrderStatusUpdateEvent(order=order))
         return order.status
 
     async def _handle_pending_order_update(self, order_id: str) -> Optional[FullOrderDetails]:
