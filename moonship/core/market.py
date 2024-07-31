@@ -357,13 +357,26 @@ class Market:
                 log_msg += f"{to_amount_str(order.quantity)} @ {to_amount_str(order.price)}"
             self._log(logging.INFO, log_msg)
         order_id = await self._client.place_order(order)
-        placed_order = await self.get_order(order_id)
-        if placed_order.status == OrderStatus.PENDING:
-            self._log(logging.INFO, f"{placed_order.action.name} order {placed_order.id} {placed_order.status.name}")
-            self._pending_orders[placed_order.id] = placed_order
-        else:
-            self.raise_event(OrderStatusUpdateEvent(order=placed_order))
+        self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
+        self._pending_orders[order_id] = \
+            FullOrderDetails(
+                id=order.id,
+                symbol=self.symbol,
+                action=order.action,
+                quantity=order.quantity if isinstance(order, LimitOrder) or order.is_base_quantity else Amount(0),
+                quote_quantity=order.quantity if isinstance(order, MarketOrder) and not order.is_base_quantity else Amount(0),
+                limit_price=order.price if isinstance(order, LimitOrder) else Amount(0))
+        # In case the order executed too fast and the TradeEvent occurred before the
+        # order was marked as pending (e.g. for market and non-post-only limit orders)
+        asyncio.create_task(self._check_placed_order_status(order_id))
         return order_id
+
+    async def _check_placed_order_status(self, order_id: str) -> None:
+        if order_id in self._pending_orders:
+            placed_order = await self.get_order(order_id)
+            if order_id in self._pending_orders:
+                self._remove_completed_pending_order(placed_order)
+                self.raise_event(OrderStatusUpdateEvent(order=placed_order))
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         if self._status == MarketStatus.CLOSED:
