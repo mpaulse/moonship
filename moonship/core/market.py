@@ -418,8 +418,9 @@ class Market:
             if updated_order_details.quote_quantity == 0 and pending_order_details.quote_quantity > 0:
                 # If the get_order() call does not provide the original quote quantity
                 updated_order_details.quote_quantity = pending_order_details.quote_quantity
-            self._remove_completed_pending_order(updated_order_details)
-            self.raise_event(OrderStatusUpdateEvent(order=updated_order_details))
+            if order_id in self._pending_orders:
+                self._remove_completed_pending_order(updated_order_details)
+                self.raise_event(OrderStatusUpdateEvent(order=updated_order_details))
             return updated_order_details
         return None
 
