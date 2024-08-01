@@ -160,8 +160,7 @@ class BinanceClient(AbstractWebClient):
         if isinstance(order, LimitOrder):
             request["price"] = to_amount_str(order.price)
             request["quantity"] = to_amount_str(order.quantity)
-            if not order.post_only:
-                request["timeInForce"] = "GTC"
+            request["timeInForce"] = order.time_in_force.value
         else:
             if order.is_base_quantity:
                 request["quantity"] = to_amount_str(order.quantity)

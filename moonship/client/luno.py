@@ -128,6 +128,7 @@ class LunoClient(AbstractWebClient):
             request["post_only"] = order.post_only
             request["price"] = to_amount_str(order.price, LUNO_MAX_DECIMALS)
             request["volume"] = to_amount_str(order.quantity, LUNO_MAX_DECIMALS)
+            request["time_in_force"] = order.time_in_force.value
         else:
             order_type = "marketorder"
             request["type"] = order.action.name

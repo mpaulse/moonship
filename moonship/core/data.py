@@ -24,11 +24,13 @@
 
 import abc
 import decimal
+import enum
 
 from dataclasses import dataclass
 from datetime import datetime as Timestamp, timezone
 from decimal import Decimal as Amount
 from enum import Enum
+from typing import Optional
 
 __all__ = [
     "Amount",
@@ -43,6 +45,7 @@ __all__ = [
     "round_amount",
     "Rounding",
     "Ticker",
+    "TimeInForce",
     "Timestamp",
     "to_amount",
     "to_amount_str",
@@ -121,11 +124,18 @@ class MarketOrder(AbstractOrder):
     is_base_quantity: bool = True
 
 
+class TimeInForce(enum.Enum):
+    FILL_OR_KILL = "FOK"
+    GOOD_TILL_CANCELLED = "GTC"
+    IMMEDIATE_OR_CANCEL = "IOC"
+
+
 @dataclass
 class LimitOrder(AbstractOrder):
     price: Amount = Amount(0)
     quantity: Amount = Amount(0)
     post_only: bool = True
+    time_in_force: Optional[TimeInForce] = None
 
 
 @dataclass

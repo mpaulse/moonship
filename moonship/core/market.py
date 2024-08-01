@@ -356,6 +356,8 @@ class Market:
             else:
                 log_msg += f"{to_amount_str(order.quantity)} @ {to_amount_str(order.price)}"
             self._log(logging.INFO, log_msg)
+        if isinstance(order, LimitOrder) and (order.post_only or order.time_in_force is None):
+            order.time_in_force = TimeInForce.GOOD_TILL_CANCELLED
         order_id = await self._client.place_order(order)
         self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
         self._pending_orders[order_id] = \

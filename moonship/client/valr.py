@@ -169,7 +169,7 @@ class ValrClient(AbstractWebClient):
             request["postOnly"] = order.post_only
             request["price"] = to_amount_str(order.price)
             request["quantity"] = to_amount_str(order.quantity)
-            request["timeInForce"] = "GTC"
+            request["timeInForce"] = order.time_in_force.value
         else:
             order_type = "market"
             if order.is_base_quantity:
