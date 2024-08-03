@@ -423,6 +423,11 @@ class ValrClient(AbstractWebClient):
             return OrderStatus.PARTIALLY_FILLED
         elif status == "Filled":
             return OrderStatus.FILLED
+        elif status == "Expired":
+            if rem_quantity > 0:
+                return OrderStatus.CANCELLED_AND_PARTIALLY_FILLED
+            else:
+                return OrderStatus.EXPIRED
         return OrderStatus.PENDING
 
     def _get_error_code(self, e: Exception) -> MarketErrorCode:
