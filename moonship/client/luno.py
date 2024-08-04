@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -157,7 +157,9 @@ class LunoClient(AbstractWebClient):
                         action=self._to_order_action(order_data.get("type")),
                         quantity=to_amount(order_data.get("limit_volume")),
                         quantity_filled=to_amount(order_data.get("base")),
+                        quantity_filled_fee=to_amount(order_data.get("fee_base")),
                         quote_quantity_filled=to_amount(order_data.get("counter")),
+                        quote_quantity_filled_fee=to_amount(order_data.get("fee_counter")),
                         limit_price=to_amount(order_data.get("limit_price")),
                         status=self._to_order_status(order_data),
                         creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))

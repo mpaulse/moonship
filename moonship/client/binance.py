@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -304,6 +304,13 @@ class BinanceClient(AbstractWebClient):
                 else OrderStatus.CANCELLED if status == "CANCELED"
                 else OrderStatus[status],
                 creation_timestamp=to_utc_timestamp(event.get("O")))
+            fee = to_amount(event.get("n"))
+            fee_asset = event.get("N")
+            if fee > 0 and fee_asset is not None:
+                if fee_asset == self.market.base_asset:
+                    order_details.quantity_filled_fee = fee
+                else:
+                    order_details.quote_quantity_filled_fee = fee
             self.order_details_cache[order_details.id] = order_details
 
     def _on_trade_stream_event(self, event: dict) -> None:

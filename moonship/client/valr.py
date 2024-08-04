@@ -192,24 +192,53 @@ class ValrClient(AbstractWebClient):
 
     async def get_order(self, order_id: str) -> ValrFullOrderDetails:
         try:
+            return await self._get_order(order_id, get_history_summary=True)
+        except MarketException:
+            # Orders that are not completed are invalid for history summary requests.
+            return await self._get_order(order_id, get_history_summary=False)
+
+    async def _get_order(self, order_id: str, get_history_summary: bool) -> ValrFullOrderDetails:
+        try:
             async with self.limiter:
-                path = f"/{API_VERSION_1}/orders/{self.market.symbol}/orderid/{order_id}"
+                path = f"/{API_VERSION_1}/orders/"
+                if get_history_summary:
+                    path += "history/summary"
+                else:
+                    path += self.market.symbol
+                path += f"/orderid/{order_id}"
                 async with self.http_session.get(
                         f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("GET", path)) as rsp:
                     await self.handle_error_response(rsp)
                     order_data = await rsp.json()
+
                     quantity = to_amount(order_data.get("originalQuantity"))
-                    return ValrFullOrderDetails(
+                    quantity_filled = quantity - to_amount(order_data.get("remainingQuantity"))
+
+                    order_details = ValrFullOrderDetails(
                         id=order_id,
                         symbol=order_data.get("currencyPair"),
                         action=self._to_order_action(order_data.get("orderSide")),
                         quantity=quantity,
-                        quantity_filled=quantity - to_amount(order_data.get("remainingQuantity")),
+                        quantity_filled=quantity_filled,
                         limit_price=to_amount(order_data.get("originalPrice")),
                         status=self._to_order_status(order_data),
                         failed_reason=order_data.get("failedReason"),
                         creation_timestamp=self._to_timestamp(order_data.get("orderCreatedAt")))
+
+                    # Only in history summary
+                    price = to_amount(order_data.get("averagePrice"))
+                    if price > 0:
+                        order_details.quote_quantity_filled = quantity_filled * price
+                    fee = to_amount(order_data.get("totalFee"))
+                    fee_asset = order_data.get("feeCurrency")
+                    if fee > 0 and fee_asset is not None:
+                        if fee_asset == self.market.base_asset:
+                            order_details.quantity_filled_fee = fee
+                        else:
+                            order_details.quote_quantity_filled_fee = fee
+
+                    return order_details
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
 
@@ -293,10 +322,6 @@ class ValrClient(AbstractWebClient):
                     self._on_order_book_stream_event(data)
                 elif event == "NEW_TRADE":
                     self._on_trade_stream_event(data)
-                # elif event == "ORDER_STATUS_UPDATE":
-                #    self._on_order_status_update(data)
-                # elif event == "FAILED_CANCEL_ORDER":
-                #    self._on_order_cancellation_failed(data)
 
     def _on_order_book_stream_event(self, data: dict[str, any]) -> None:
         bids = self._get_orders_from_stream(OrderAction.BUY, data.get("Bids"))
@@ -370,31 +395,6 @@ class ValrClient(AbstractWebClient):
                     quantity=to_amount(data.get("quantity")),
                     price=to_amount(data.get("price")),
                     taker_action=self._to_order_action(data.get("takerSide")))))
-
-    def _on_order_status_update(self, data: dict[str, any]) -> None:
-        order_id = data.get("orderId")
-        quantity = to_amount(data.get("originalQuantity"))
-        status = self._to_order_status(data)
-        failed_reason = data.get("failedReason")
-        if status == OrderStatus.REJECTED:
-            self.logger.warning(f"Order {order_id} failed: {failed_reason}")
-        self.market.raise_event(
-            OrderStatusUpdateEvent(
-                order=ValrFullOrderDetails(
-                    id=order_id,
-                    symbol=self.market.symbol,
-                    action=self._to_order_action(data.get("orderSide")),
-                    quantity=quantity,
-                    quantity_filled=quantity - to_amount(data.get("remainingQuantity")),
-                    limit_price=to_amount(data.get("originalPrice")),
-                    status=status,
-                    failed_reason=failed_reason,
-                    creation_timestamp=self._to_timestamp(data.get("orderCreatedAt")))))
-
-    def _on_order_cancellation_failed(self, data: dict[str, any]) -> None:
-        order_id = data.get("orderId")
-        error = data.get("message")
-        self.market.logger.warning(f"Failed to cancel order {order_id}: {error}")
 
     def _to_timestamp(self, s: Optional[str]) -> Timestamp:
         if s is not None:

@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2024, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -146,7 +146,9 @@ class FullOrderDetails(AbstractOrder):
     limit_price: Amount = Amount(0)
     status: OrderStatus = OrderStatus.PENDING
     quantity_filled: Amount = Amount(0)
+    quantity_filled_fee: Amount = Amount(0)
     quote_quantity_filled: Amount = Amount(0)
+    quote_quantity_filled_fee: Amount = Amount(0)
     creation_timestamp: Timestamp = None
 
 
