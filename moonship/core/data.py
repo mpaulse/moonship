@@ -34,6 +34,8 @@ from typing import Optional
 
 __all__ = [
     "Amount",
+    "Candle",
+    "CandlePeriod",
     "FullOrderDetails",
     "LimitOrder",
     "MarketInfo",
@@ -124,7 +126,7 @@ class MarketOrder(AbstractOrder):
     is_base_quantity: bool = True
 
 
-class TimeInForce(enum.Enum):
+class TimeInForce(Enum):
     FILL_OR_KILL = "FOK"
     GOOD_TILL_CANCELLED = "GTC"
     IMMEDIATE_OR_CANCEL = "IOC"
@@ -161,6 +163,28 @@ class Rounding(Enum):
     ROUND_HALF_UP = decimal.ROUND_HALF_UP
     ROUND_HALF_EVEN = decimal.ROUND_HALF_EVEN
     ROUND_UP = decimal.ROUND_UP
+
+
+class CandlePeriod(Enum):
+    ONE_MIN = 60
+    FIVE_MIN = 300
+    FIFTEEN_MIN = 900
+    THIRTY_MIN = 1800
+    HOUR = 3600
+    DAY = 86400
+
+
+@dataclass
+class Candle:
+    symbol: str
+    start_time: Timestamp
+    end_time: Timestamp
+    period: CandlePeriod
+    open: Amount
+    high: Amount
+    low: Amount
+    close: Amount
+    volume: Optional[Amount] = None
 
 
 def to_amount(s: str) -> Amount:

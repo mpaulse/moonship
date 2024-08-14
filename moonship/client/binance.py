@@ -147,6 +147,52 @@ class BinanceClient(AbstractWebClient):
         except Exception as e:
             raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
 
+    async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
+        match period:
+            case CandlePeriod.ONE_MIN:
+                interval = "1m"
+            case CandlePeriod.FIVE_MIN:
+                interval = "5m"
+            case CandlePeriod.FIFTEEN_MIN:
+                interval = "15m"
+            case CandlePeriod.THIRTY_MIN:
+                interval = "30m"
+            case CandlePeriod.HOUR:
+                interval = "1h"
+            case CandlePeriod.DAY:
+                interval = "1d"
+            case _:
+                interval = "5m"
+        params = {
+            "symbol": self.market.symbol,
+            "interval": interval
+        }
+        if from_time is not None:
+            params["startTime"] = int(from_time.timestamp()) * 1000
+        try:
+            async with self.request_weight_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/klines", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    candles: list[Candle] = []
+                    candle_data = await rsp.json()
+                    if isinstance(candle_data, list):
+                        for data in candle_data:
+                            if len(data) >= 7:
+                                candles.append(
+                                    Candle(
+                                        symbol=self.market.symbol,
+                                        period=period,
+                                        start_time=to_utc_timestamp(data[0]),
+                                        open=to_amount(data[1]),
+                                        high=to_amount(data[2]),
+                                        low=to_amount(data[3]),
+                                        close=to_amount(data[4]),
+                                        volume=to_amount(data[5]),
+                                        end_time=to_utc_timestamp(data[6])))
+                    return candles
+        except Exception as e:
+            raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
+
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
             "symbol": self.market.symbol,
