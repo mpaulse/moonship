@@ -25,6 +25,7 @@
 import aiohttp
 import aiolimiter
 import asyncio
+import datetime
 
 from moonship.core import *
 from moonship.client.web import *
@@ -95,7 +96,7 @@ class LunoClient(AbstractWebClient):
         except Exception as e:
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
-    async def get_recent_trades(self, limit) -> list[Trade]:
+    async def get_recent_trades(self, limit: int) -> list[Trade]:
         params = {
             "pair": self.market.symbol
         }
@@ -117,6 +118,41 @@ class LunoClient(AbstractWebClient):
                     return trades
         except Exception as e:
             raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+
+    async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
+        params = {
+            "pair": self.market.symbol,
+            "duration": period.value
+        }
+        if from_time is not None:
+            params["since"] = int(from_time.timestamp()) * 1000
+        else:
+            params["since"] = utc_timestamp_now_msec() - (period.value * 1000 * 1000)  # Max. 1000 candles returned
+        try:
+            async with self.limiter:
+                async with self.http_session.get(f"{EXCHANGE_API_BASE_URL}/candles", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    candles: list[Candle] = []
+                    candle_data = (await rsp.json())["candles"]
+                    if isinstance(candle_data, list):
+                        for data in candle_data:
+                            candle_start = to_utc_timestamp(data.get("timestamp"))
+                            candles.append(
+                                Candle(
+                                    symbol=self.market.symbol,
+                                    start_time=candle_start,
+                                    end_time=candle_start
+                                    + datetime.timedelta(seconds=period.value)
+                                    - datetime.timedelta(milliseconds=1),
+                                    period=period,
+                                    open=to_amount(data.get("open")),
+                                    close=to_amount(data.get("close")),
+                                    high=to_amount(data.get("high")),
+                                    low=to_amount(data.get("low")),
+                                    volume=to_amount(data.get("volume"))))
+                    return candles
+        except Exception as e:
+            raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {

@@ -27,7 +27,7 @@ import importlib
 import logging
 import nanoid
 
-from datetime import timezone
+from datetime import timedelta, timezone
 from moonship.core import *
 from moonship.core.ipc import *
 from moonship.core.redis import *
@@ -36,6 +36,7 @@ from moonship.core.strategy import Strategy
 from typing import Optional
 
 DEFAULT_MAX_RECENT_TRADE_LIST_SIZE = 10_000
+DEFAULT_MAX_RECENT_CANDLE_LIST_SIZE = 10_000
 DEFAULT_ENGINE_NAME = "engine"
 
 logger = logging.getLogger(__name__)
@@ -51,11 +52,12 @@ class MarketManager(MarketSubscriber):
     async def open(self) -> None:
         self.market._status = MarketStatus.OPEN
         await self.market._client.connect()
-        # TODO: get pending orders
         await asyncio.gather(
             self._init_current_price(),
             self._init_recent_trade_list(),
+            self._init_recent_candles(),
             self._init_market_info())
+        asyncio.create_task(self._poll_candles())
 
     async def _init_current_price(self) -> None:
         ticker = await self.market.get_ticker()
@@ -72,6 +74,11 @@ class MarketManager(MarketSubscriber):
         for trade in trades:
             self._add_trade(trade)
 
+    async def _init_recent_candles(self) -> None:
+        candles = await self.market.get_candles()
+        for candle in candles:
+            self._add_candle(candle)
+
     async def _init_market_info(self) -> None:
         info = await self.market._client.get_market_info()
         self.market._status = info.status
@@ -85,6 +92,13 @@ class MarketManager(MarketSubscriber):
         if len(self.market._recent_trades) >= self.max_recent_trade_list_size:
             self.market._recent_trades.pop(0)
         self.market._recent_trades.add(trade)
+
+    def _add_candle(self, candle: Candle) -> None:
+        if len(self.market._recent_candles) >= DEFAULT_MAX_RECENT_CANDLE_LIST_SIZE:
+            self.market._recent_candles.pop(0)
+        if len(self.market._recent_candles) > 0 and self.market._recent_candles[-1].start_time == candle.start_time:
+            self.market._recent_candles.pop()
+        self.market._recent_candles.add(candle)
 
     async def close(self) -> None:
         await self.market._client.close()
@@ -150,6 +164,41 @@ class MarketManager(MarketSubscriber):
         # For MarketClients capable of receiving order update stream events
         self.market._remove_completed_pending_order(event.order)
 
+    async def _poll_candles(self) -> None:
+        while True:
+            try:
+                now = Timestamp.now(timezone.utc)
+                latest_candle: Optional[Candle] = None
+                from_time = None
+
+                if len(self.market._recent_candles) > 0:
+                    latest_candle = self.market._recent_candles[-1]
+                    if now <= latest_candle.end_time:
+                        from_time = latest_candle.start_time
+                    else:
+                        from_time = latest_candle.end_time + timedelta(milliseconds=1)
+
+                candles = await self.market.get_candles(from_time=from_time)
+                for candle in candles:
+                    if now > candle.end_time:
+                        self._add_candle(candle)
+                        self.market.raise_event(CandleEvent(candle=candle))
+
+                if len(candles) > 0:
+                    latest_candle = candles[-1]
+
+                poll_time = self.market._default_candle_period.value
+                if latest_candle is not None:
+                    if now <= latest_candle.end_time:
+                        poll_time = (latest_candle.end_time - now).total_seconds()
+                    else:
+                        poll_time = (timedelta(seconds=poll_time) - (now - latest_candle.end_time)).total_seconds()
+                await asyncio.sleep(poll_time)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(f"Error retrieving candles")
+
 
 class TradingEngine(Service):
 
@@ -180,9 +229,17 @@ class TradingEngine(Service):
             cls = self.load_class("client", market_config, MarketClient)
             client = cls(market_name, config)
             max_recent_trade_list_size = market_config.get("max_recent_trade_list_size")
+            candle_period = market_config.get("candle_period", CandlePeriod.FIVE_MIN.value)
             if not isinstance(max_recent_trade_list_size, int):
                 max_recent_trade_list_size = DEFAULT_MAX_RECENT_TRADE_LIST_SIZE
-            self.markets[market_name] = MarketManager(Market(market_name, symbol, client), max_recent_trade_list_size)
+            self.markets[market_name] = \
+                MarketManager(
+                    Market(
+                        market_name,
+                        symbol,
+                        client,
+                        candle_period=candle_period),
+                    max_recent_trade_list_size)
 
     def init_strategies(self, config: Config) -> None:
         strategies_config = config.get("moonship.strategies")

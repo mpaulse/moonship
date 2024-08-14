@@ -34,6 +34,7 @@ from moonship.core import *
 from typing import Iterator, Mapping, Optional, Union
 
 __all__ = [
+    "CandleEvent",
     "Market",
     "MarketClient",
     "MarketEvent",
@@ -83,6 +84,9 @@ class TradeEvent(MarketEvent):
     maker_order_id: str = None
     taker_order_id: str = None
 
+@dataclass
+class CandleEvent(MarketEvent):
+    candle: Candle = None
 
 @dataclass
 class MarketStatusEvent(MarketEvent):
@@ -111,6 +115,9 @@ class MarketSubscriber:
     async def on_trade(self, event: TradeEvent) -> None:
         pass
 
+    async def on_candle(self, event: CandleEvent) -> None:
+        pass
+
     async def on_market_status_update(self, event: MarketStatusEvent) -> None:
         pass
 
@@ -137,7 +144,7 @@ class MarketClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def get_market_info(self, use_cached=True) -> MarketInfo:
+    async def get_market_info(self, use_cached: bool = True) -> MarketInfo:
         pass
 
     @abc.abstractmethod
@@ -146,6 +153,10 @@ class MarketClient(abc.ABC):
 
     @abc.abstractmethod
     async def get_recent_trades(self, limit: int) -> list[Trade]:
+        pass
+
+    @abc.abstractmethod
+    async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
         pass
 
     @abc.abstractmethod
@@ -251,10 +262,17 @@ class OrderBookEntriesView(Mapping):
 
 class Market:
 
-    def __init__(self, name: str, symbol: str, client: MarketClient) -> None:
+    def __init__(self, name: str, symbol: str, client: MarketClient, **kwargs: dict[str, any]) -> None:
         self._name = name
         self._symbol = symbol
         self._client = client
+
+        candle_period = kwargs.get("candle_period")
+        try:
+            self._default_candle_period = CandlePeriod(candle_period)
+        except ValueError:
+            raise ConfigException(f"Invalid candle period specified for {name} market: {candle_period}")
+
         self._base_asset = symbol[0:3] if len(symbol) == 6 else symbol
         self._base_asset_precision = 0
         self._base_asset_min_quantity = Amount(1)
@@ -264,6 +282,7 @@ class Market:
         self._status = MarketStatus.CLOSED
         self._order_book = OrderBook()
         self._recent_trades = sortedcontainers.SortedList(key=lambda t: t.timestamp)
+        self._recent_candles = sortedcontainers.SortedList(key=lambda c: c.start_time)
         self._subscribers: list[MarketSubscriber] = []
         self._pending_orders: dict[str, FullOrderDetails] = {}
         self._logger = logging.getLogger(f"moonship.market.{name}")
@@ -330,6 +349,10 @@ class Market:
         return reversed(self._recent_trades)
 
     @property
+    def recent_candles(self) -> Iterator[Candle]:
+        return reversed(self._recent_candles)
+
+    @property
     def logger(self) -> logging.Logger:
         return self._logger
 
@@ -338,10 +361,17 @@ class Market:
             raise MarketException(f"Market closed", self.name)
         return await self._client.get_ticker()
 
-    async def get_recent_trades(self, limit=1000) -> list[Trade]:
+    async def get_recent_trades(self, limit: int = 1000) -> list[Trade]:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         return await self._client.get_recent_trades(limit)
+
+    async def get_candles(self, period: CandlePeriod = None, from_time: Timestamp = None) -> list[Candle]:
+        if self._status == MarketStatus.CLOSED:
+            raise MarketException(f"Market closed", self.name)
+        if period is None:
+            period = self._default_candle_period
+        return await self._client.get_candles(period, from_time)
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         if self._status == MarketStatus.CLOSED:
@@ -456,6 +486,8 @@ class Market:
                 task = sub.on_order_book_item_removed(event)
             elif isinstance(event, TradeEvent):
                 task = sub.on_trade(event)
+            elif isinstance(event, CandleEvent):
+                task = sub.on_candle(event)
             elif isinstance(event, TickerEvent):
                 task = sub.on_ticker(event)
             elif isinstance(event, OrderBookInitEvent):

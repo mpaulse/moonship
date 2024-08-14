@@ -27,6 +27,7 @@ import json
 import aiohttp
 import aiolimiter
 import asyncio
+import datetime
 import hmac
 import hashlib
 
@@ -130,7 +131,7 @@ class ValrClient(AbstractWebClient):
         except Exception as e:
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
-    async def get_recent_trades(self, limit) -> list[Trade]:
+    async def get_recent_trades(self, limit: int) -> list[Trade]:
         try:
             trades: list[Trade] = []
             before_id = None
@@ -158,6 +159,39 @@ class ValrClient(AbstractWebClient):
             return trades
         except Exception as e:
             raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+
+    async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
+        params = {
+            "periodSeconds": period.value
+        }
+        if from_time is not None:
+            params["startTime"] = from_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        try:
+            candles: list[Candle] = []
+            async with self.public_api_limiter:
+                async with self.http_session.get(
+                        f"{API_BASE_URL}/{API_VERSION_1}/public/{self.market.symbol}/markprice/buckets",
+                        params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    candle_data = await rsp.json()
+                    if isinstance(candle_data, list):
+                        for data in candle_data:
+                            candle_start = self._to_timestamp(data.get("startTime"))
+                            candles.append(
+                                Candle(
+                                    symbol=self.market.symbol,
+                                    start_time=candle_start,
+                                    end_time=candle_start
+                                    + datetime.timedelta(seconds=period.value)
+                                    - datetime.timedelta(milliseconds=1),
+                                    period=period,
+                                    open=to_amount(data.get("open")),
+                                    close=to_amount(data.get("close")),
+                                    high=to_amount(data.get("high")),
+                                    low=to_amount(data.get("low"))))
+            return list(reversed(candles))
+        except Exception as e:
+            raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
 
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         request = {
