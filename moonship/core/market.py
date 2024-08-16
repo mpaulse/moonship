@@ -376,6 +376,8 @@ class Market:
     async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
+        if isinstance(order, LimitOrder) and (order.post_only or order.time_in_force is None):
+            order.time_in_force = TimeInForce.GOOD_TILL_CANCELLED
         if self.logger.isEnabledFor(logging.INFO):
             log_msg = f"{order.action.name} {self.symbol} "
             if isinstance(order, MarketOrder):
@@ -385,9 +387,9 @@ class Market:
                     log_msg += f"@ market for {to_amount_str(order.quantity)}"
             else:
                 log_msg += f"{to_amount_str(order.quantity)} @ {to_amount_str(order.price)}"
+            if order.time_in_force is not None:
+                log_msg += f" ({order.time_in_force.name.replace("_", " ")})"
             self._log(logging.INFO, log_msg)
-        if isinstance(order, LimitOrder) and (order.post_only or order.time_in_force is None):
-            order.time_in_force = TimeInForce.GOOD_TILL_CANCELLED
         order_id = await self._client.place_order(order)
         self._log(logging.INFO, f"{order.action.name} order {order_id} {OrderStatus.PENDING.name}")
         self._pending_orders[order_id] = \
