@@ -50,7 +50,7 @@ class ValrFullOrderDetails(FullOrderDetails):
 class ValrClient(AbstractWebClient):
     market_info: dict[str, MarketInfo] = {}
     market_info_lock = asyncio.Lock()
-    limiter = aiolimiter.AsyncLimiter(120, 60)
+    limiter = aiolimiter.AsyncLimiter(1000, 60)
     public_api_limiter = aiolimiter.AsyncLimiter(10, 60)
 
     def __init__(self, market_name: str, app_config: Config):
