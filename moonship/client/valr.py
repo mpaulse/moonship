@@ -259,6 +259,10 @@ class ValrClient(AbstractWebClient):
                         status=self._to_order_status(order_data),
                         failed_reason=order_data.get("failedReason"),
                         creation_timestamp=self._to_timestamp(order_data.get("orderCreatedAt")))
+                    try:
+                        order_details.time_in_force = TimeInForce(order_data.get("timeInForce"))
+                    except ValueError:
+                        pass
 
                     # Only in history summary
                     price = to_amount(order_data.get("averagePrice"))

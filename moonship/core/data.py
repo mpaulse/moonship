@@ -152,6 +152,7 @@ class FullOrderDetails(AbstractOrder):
     quote_quantity_filled: Amount = Amount(0)
     quote_quantity_filled_fee: Amount = Amount(0)
     creation_timestamp: Timestamp = None
+    time_in_force: TimeInForce = None
 
 
 class Rounding(Enum):

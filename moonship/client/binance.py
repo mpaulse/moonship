@@ -241,7 +241,7 @@ class BinanceClient(AbstractWebClient):
                     await self.handle_error_response(rsp)
                     order_data = await rsp.json()
                     status = order_data.get("status")
-                    return FullOrderDetails(
+                    order_details = FullOrderDetails(
                         id=order_id,
                         symbol=order_data.get("symbol"),
                         action=OrderAction[order_data.get("side")],
@@ -255,6 +255,11 @@ class BinanceClient(AbstractWebClient):
                         else OrderStatus.CANCELLED if status == "CANCELED"
                         else OrderStatus[status],
                         creation_timestamp=to_utc_timestamp(order_data.get("time")))
+                    try:
+                        order_details.time_in_force = TimeInForce(order_data.get("timeInForce"))
+                    except ValueError:
+                        pass
+                    return order_details
         except Exception as e:
             error_code = self._get_error_code(e)
             if error_code == MarketErrorCode.NO_SUCH_ORDER:
@@ -357,6 +362,10 @@ class BinanceClient(AbstractWebClient):
                     order_details.quantity_filled_fee = fee
                 else:
                     order_details.quote_quantity_filled_fee = fee
+            try:
+                order_details.time_in_force = TimeInForce(event.get("f"))
+            except ValueError:
+                pass
             self.order_details_cache[order_details.id] = order_details
 
     def _on_trade_stream_event(self, event: dict) -> None:

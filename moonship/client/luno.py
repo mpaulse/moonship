@@ -187,7 +187,7 @@ class LunoClient(AbstractWebClient):
                 async with self.http_session.get(f"{API_BASE_URL}/orders/{order_id}") as rsp:
                     await self.handle_error_response(rsp)
                     order_data = await rsp.json()
-                    return FullOrderDetails(
+                    order_details = FullOrderDetails(
                         id=order_id,
                         symbol=order_data.get("pair"),
                         action=self._to_order_action(order_data.get("type")),
@@ -199,6 +199,11 @@ class LunoClient(AbstractWebClient):
                         limit_price=to_amount(order_data.get("limit_price")),
                         status=self._to_order_status(order_data),
                         creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
+                    try:
+                        order_details.time_in_force = TimeInForce(order_data.get("time_in_force"))
+                    except ValueError:
+                        pass
+                    return order_details
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
 

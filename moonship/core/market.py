@@ -399,7 +399,8 @@ class Market:
                 action=order.action,
                 quantity=order.quantity if isinstance(order, LimitOrder) or order.is_base_quantity else Amount(0),
                 quote_quantity=order.quantity if isinstance(order, MarketOrder) and not order.is_base_quantity else Amount(0),
-                limit_price=order.price if isinstance(order, LimitOrder) else Amount(0))
+                limit_price=order.price if isinstance(order, LimitOrder) else Amount(0),
+                time_in_force=order.time_in_force)
         # In case the order executed too fast and the TradeEvent occurred before the
         # order was marked as pending (e.g. for market and non-post-only limit orders)
         asyncio.create_task(self._check_placed_order_status(order_id))
