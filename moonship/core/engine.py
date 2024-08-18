@@ -279,6 +279,7 @@ class TradingEngine(Service):
                 self.name,
                 self.id,
                 {s: self.config.get(f"moonship.strategies.{s}") for s in self.strategies.keys()})
+            asyncio.create_task(self.purge_orphaned_cache_entries())
         if self.message_bus is not None:
             await self.message_bus.start()
             await self.message_bus.subscribe("moonship:message:request", self.on_msg_received)
@@ -432,3 +433,7 @@ class TradingEngine(Service):
         except Exception:
             logger.exception("Module load error")
             return None, None
+
+    async def purge_orphaned_cache_entries(self) -> None:
+        await asyncio.sleep(60)
+        await self.shared_cache.purge_orphaned_engine_entries(self.name, self.id)

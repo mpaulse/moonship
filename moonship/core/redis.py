@@ -87,44 +87,44 @@ class RedisSharedCacheBulkOp(SharedCacheBulkOp):
     def __init__(self, pipeline: aioredis.client.Pipeline):
         self.pipeline = pipeline
 
-    def list_push_head(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
-        self.pipeline.lpush(storage_key, element)
+    def list_push_head(self, key: str, element: str) -> "SharedCacheBulkOp":
+        self.pipeline.lpush(key, element)
         return self
 
-    def list_push_tail(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
-        self.pipeline.rpush(storage_key, element)
+    def list_push_tail(self, key: str, element: str) -> "SharedCacheBulkOp":
+        self.pipeline.rpush(key, element)
         return self
 
-    def list_pop_head(self, storage_key: str) -> "SharedCacheBulkOp":
-        self.pipeline.lpop(storage_key)
+    def list_pop_head(self, key: str) -> "SharedCacheBulkOp":
+        self.pipeline.lpop(key)
         return self
 
-    def list_pop_tail(self, storage_key: str) -> "SharedCacheBulkOp":
-        self.pipeline.rpop(storage_key)
+    def list_pop_tail(self, key: str) -> "SharedCacheBulkOp":
+        self.pipeline.rpop(key)
         return self
 
-    def list_remove(self, storage_key: str, element: str, count: int = None) -> "SharedCacheBulkOp":
-        self.pipeline.lrem(storage_key, 0 if count is None else count, element)
+    def list_remove(self, key: str, element: str, count: int = None) -> "SharedCacheBulkOp":
+        self.pipeline.lrem(key, 0 if count is None else count, element)
         return self
 
-    def set_add(self, storage_key: str, element: str) -> SharedCacheBulkOp:
-        self.pipeline.sadd(storage_key, element)
+    def set_add(self, key: str, element: str) -> SharedCacheBulkOp:
+        self.pipeline.sadd(key, element)
         return self
 
-    def set_remove(self, storage_key: str, element: str) -> SharedCacheBulkOp:
-        self.pipeline.srem(storage_key, element)
+    def set_remove(self, key: str, element: str) -> SharedCacheBulkOp:
+        self.pipeline.srem(key, element)
         return self
 
-    def map_put(self, storage_key: str, entries: dict[str, str]) -> SharedCacheBulkOp:
-        self.pipeline.hset(storage_key, mapping=entries)
+    def map_put(self, key: str, entries: dict[str, str]) -> SharedCacheBulkOp:
+        self.pipeline.hset(key, mapping=entries)
         return self
 
-    def delete(self, storage_key: str) -> SharedCacheBulkOp:
-        self.pipeline.delete(storage_key)
+    def delete(self, key: str) -> SharedCacheBulkOp:
+        self.pipeline.delete(key)
         return self
 
-    def expire(self, storage_key: str, time_msec: int) -> SharedCacheBulkOp:
-        self.pipeline.pexpire(storage_key, time_msec)
+    def expire(self, key: str, time_msec: int) -> SharedCacheBulkOp:
+        self.pipeline.pexpire(key, time_msec)
         return self
 
     async def execute(self) -> None:
@@ -142,59 +142,70 @@ class RedisSharedCache(SharedCache):
     async def close(self) -> None:
         await close_redis()
 
-    async def list_push_head(self, storage_key: str, element: str) -> None:
-        await redis.lpush(storage_key, element)
+    async def list_push_head(self, key: str, element: str) -> None:
+        await redis.lpush(key, element)
 
-    async def list_push_tail(self, storage_key: str, element: str) -> None:
-        await redis.rpush(storage_key, element)
+    async def list_push_tail(self, key: str, element: str) -> None:
+        await redis.rpush(key, element)
 
-    async def list_pop_head(self, storage_key: str) -> str:
-        return await redis.lpop(storage_key)
+    async def list_pop_head(self, key: str) -> str:
+        return await redis.lpop(key)
 
-    async def list_pop_tail(self, storage_key: str) -> str:
-        return await redis.rpop(storage_key)
+    async def list_pop_tail(self, key: str) -> str:
+        return await redis.rpop(key)
 
-    async def list_remove(self, storage_key: str, element: str, count: int = None) -> None:
-        await redis.lrem(storage_key, 0 if count is None else count, element)
+    async def list_remove(self, key: str, element: str, count: int = None) -> None:
+        await redis.lrem(key, 0 if count is None else count, element)
 
-    async def list_get_head(self, storage_key: str) -> str:
-        return await redis.lindex(storage_key, 0)
+    async def list_get_head(self, key: str) -> str:
+        return await redis.lindex(key, 0)
 
-    async def list_get_tail(self, storage_key: str) -> str:
-        return await redis.lindex(storage_key, -1)
+    async def list_get_tail(self, key: str) -> str:
+        return await redis.lindex(key, -1)
 
-    async def list_get_elements(self, storage_key: str) -> list[str]:
-        return await redis.lrange(storage_key, 0, -1)
+    async def list_get_elements(self, key: str) -> list[str]:
+        return await redis.lrange(key, 0, -1)
 
-    async def set_add(self, storage_key: str, element: str) -> None:
-        await redis.sadd(storage_key, element)
+    async def set_add(self, key: str, element: str) -> None:
+        await redis.sadd(key, element)
 
-    async def set_remove(self, storage_key: str, element: str) -> None:
-        await redis.srem(storage_key, element)
+    async def set_remove(self, key: str, element: str) -> None:
+        await redis.srem(key, element)
 
-    async def set_get_elements(self, storage_key: str) -> set[str]:
-        return await redis.smembers(storage_key)
+    async def set_get_elements(self, key: str) -> set[str]:
+        return await redis.smembers(key)
 
-    async def map_put(self, storage_key: str, entries: dict[str, str], append=True) -> None:
+    async def map_put(self, key: str, entries: dict[str, str], append: bool = True) -> None:
         if not append:
             await self.start_bulk() \
-                .delete(storage_key) \
-                .map_put(storage_key, entries) \
+                .delete(key) \
+                .map_put(key, entries) \
                 .execute()
         else:
-            await redis.hset(storage_key, mapping=entries)
+            await redis.hset(key, mapping=entries)
 
-    async def map_get(self, storage_key: str, key: str) -> str:
-        return await redis.hget(storage_key, key)
+    async def map_get(self, key: str, map_key: str) -> str:
+        return await redis.hget(key, map_key)
 
-    async def map_get_entries(self, storage_key: str) -> dict[str, str]:
-        return await redis.hgetall(storage_key)
+    async def map_get_entries(self, key: str) -> dict[str, str]:
+        return await redis.hgetall(key)
 
-    async def delete(self, storage_key: str) -> None:
-        await redis.delete(storage_key)
+    async def delete(self, key: str) -> None:
+        await redis.delete(key)
 
-    async def expire(self, storage_key: str, time_msec: int) -> None:
-        await redis.pexpire(storage_key, time_msec)
+    async def expire(self, key: str, time_msec: int) -> None:
+        await redis.pexpire(key, time_msec)
+
+    async def keys(self, pattern: str = None) -> set[str]:
+        keys: set[str] = set()
+        cursor = 0
+        while True:
+            cursor, results = await redis.scan(cursor, pattern, count=100)
+            for key in results:
+                keys.add(key)
+            if cursor == 0:
+                break
+        return keys
 
     def start_bulk(self, transaction=True) -> SharedCacheBulkOp:
         return RedisSharedCacheBulkOp(redis.pipeline(transaction))
@@ -304,12 +315,12 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
         if session_id is None:
             return aiohttp_session.Session(None, data=None, new=True, max_age=None)
         else:
-            storage_key = self._storage_key(session_id)
-            session_save_data = await self.shared_cache.map_get_entries(storage_key)
+            key = self._key(session_id)
+            session_save_data = await self.shared_cache.map_get_entries(key)
             if session_save_data is None or len(session_save_data) == 0:
                 return aiohttp_session.Session(None, data=None, new=True, max_age=None)
             if self.idle_session_expiry_msec is not None:
-                await self.shared_cache.expire(storage_key, self.idle_session_expiry_msec)
+                await self.shared_cache.expire(key, self.idle_session_expiry_msec)
             session_data = {
                 "created": int(session_save_data["created"]),
                 "session": session_save_data
@@ -322,22 +333,22 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
             request: aiohttp.web.Request,
             response: aiohttp.web.Response,
             session: aiohttp_session.Session):
-        storage_key = self._storage_key(session)
+        key = self._key(session)
         if session.empty:
             self.save_cookie(response, None)
-            await self.shared_cache.delete(storage_key)
+            await self.shared_cache.delete(key)
         else:
             self.save_cookie(response, session.identity, max_age=None)
             session_data = self._get_session_data(session)
             session_save_data = session_data["session"]
             session_save_data["created"] = session_data["created"]
             b = self.shared_cache.start_bulk() \
-                .delete(storage_key) \
-                .map_put(storage_key, session_save_data)
+                .delete(key) \
+                .map_put(key, session_save_data)
             if self.idle_session_expiry_msec is not None:
-                b.expire(storage_key, self.idle_session_expiry_msec)
+                b.expire(key, self.idle_session_expiry_msec)
             await b.execute()
 
-    def _storage_key(self, session: Union[str, aiohttp_session.Session]) -> str:
+    def _key(self, session: Union[str, aiohttp_session.Session]) -> str:
         session_id = session if isinstance(session, str) else session.identity
         return f"moonship:session:{session_id}"

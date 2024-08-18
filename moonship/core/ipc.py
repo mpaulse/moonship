@@ -44,43 +44,43 @@ __all__ = [
 class SharedCacheBulkOp(abc.ABC):
 
     @abc.abstractmethod
-    def list_push_head(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+    def list_push_head(self, key: str, element: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def list_push_tail(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+    def list_push_tail(self, key: str, element: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def list_pop_head(self, storage_key: str) -> "SharedCacheBulkOp":
+    def list_pop_head(self, key: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def list_pop_tail(self, storage_key: str) -> "SharedCacheBulkOp":
+    def list_pop_tail(self, key: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def list_remove(self, storage_key: str, element: str, count: int = None) -> "SharedCacheBulkOp":
+    def list_remove(self, key: str, element: str, count: int = None) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def set_add(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+    def set_add(self, key: str, element: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def set_remove(self, storage_key: str, element: str) -> "SharedCacheBulkOp":
+    def set_remove(self, key: str, element: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def map_put(self, storage_key: str, entries: dict[str, str]) -> "SharedCacheBulkOp":
+    def map_put(self, key: str, entries: dict[str, str]) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def delete(self, storage_key: str) -> "SharedCacheBulkOp":
+    def delete(self, key: str) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
-    def expire(self, storage_key: str, time_msec: int) -> "SharedCacheBulkOp":
+    def expire(self, key: str, time_msec: int) -> "SharedCacheBulkOp":
         pass
 
     @abc.abstractmethod
@@ -102,71 +102,75 @@ class SharedCache(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def list_push_head(self, storage_key: str, element: str) -> None:
+    async def list_push_head(self, key: str, element: str) -> None:
         pass
 
     @abc.abstractmethod
-    async def list_push_tail(self, storage_key: str, element: str) -> None:
+    async def list_push_tail(self, key: str, element: str) -> None:
         pass
 
     @abc.abstractmethod
-    async def list_pop_head(self, storage_key: str) -> str:
+    async def list_pop_head(self, key: str) -> str:
         pass
 
     @abc.abstractmethod
-    async def list_pop_tail(self, storage_key: str) -> str:
+    async def list_pop_tail(self, key: str) -> str:
         pass
 
     @abc.abstractmethod
-    async def list_remove(self, storage_key: str, element: str, count: int = None) -> None:
+    async def list_remove(self, key: str, element: str, count: int = None) -> None:
         pass
 
     @abc.abstractmethod
-    async def list_get_head(self, storage_key: str) -> str:
+    async def list_get_head(self, key: str) -> str:
         pass
 
     @abc.abstractmethod
-    async def list_get_tail(self, storage_key: str) -> str:
+    async def list_get_tail(self, key: str) -> str:
         pass
 
     @abc.abstractmethod
-    async def list_get_elements(self, storage_key: str) -> list[str]:
+    async def list_get_elements(self, key: str) -> list[str]:
         pass
 
     @abc.abstractmethod
-    async def set_add(self, storage_key: str, element: str) -> None:
+    async def set_add(self, key: str, element: str) -> None:
         pass
 
     @abc.abstractmethod
-    async def set_remove(self, storage_key: str, element: str) -> None:
+    async def set_remove(self, key: str, element: str) -> None:
         pass
 
     @abc.abstractmethod
-    async def set_get_elements(self, storage_key: str) -> set[str]:
+    async def set_get_elements(self, key: str) -> set[str]:
         pass
 
     @abc.abstractmethod
-    async def map_put(self, storage_key: str, entries: dict[str, str], append=True) -> None:
+    async def map_put(self, key: str, entries: dict[str, str], append: bool = True) -> None:
         pass
 
     @abc.abstractmethod
-    async def map_get(self, storage_key: str, key: str) -> str:
+    async def map_get(self, key: str, map_key: str) -> str:
         pass
 
     @abc.abstractmethod
-    async def map_get_entries(self, storage_key: str) -> dict[str, str]:
+    async def map_get_entries(self, key: str) -> dict[str, str]:
         pass
 
     @abc.abstractmethod
-    async def delete(self, storage_key: str) -> None:
+    async def delete(self, key: str) -> None:
         pass
 
     @abc.abstractmethod
-    async def expire(self, storage_key: str, time_msec: int) -> None:
+    async def expire(self, key: str, time_msec: int) -> None:
         pass
 
     @abc.abstractmethod
-    def start_bulk(self, transaction=True) -> SharedCacheBulkOp:
+    async def keys(self, pattern: str = None) -> set[str]:
+        pass
+
+    @abc.abstractmethod
+    def start_bulk(self, transaction: bool = True) -> SharedCacheBulkOp:
         pass
 
 
@@ -267,14 +271,14 @@ class SharedCacheDataAccessor:
     async def get_engine_id(self, engine: str) -> str:
         return await self._shared_cache.list_get_tail(f"moonship:{engine}:ids")
 
-    async def map_put(self, storage_key: str, data: dict[str, any], engine: str) -> None:
+    async def map_put(self, key: str, data: dict[str, any], engine: str) -> None:
         await self._shared_cache.map_put(
-            f"moonship:{engine}:{storage_key}",
+            f"moonship:{engine}:{key}",
             self._to_cache_map_entries(data))
 
-    async def map_get_entries(self, storage_key: str, engine: str) -> dict[str, any]:
+    async def map_get_entries(self, key: str, engine: str) -> dict[str, any]:
         return self._from_cache_map_entries(
-            await self._shared_cache.map_get_entries(f"moonship:{engine}:{storage_key}"))
+            await self._shared_cache.map_get_entries(f"moonship:{engine}:{key}"))
 
     def _to_cache_map_entries(self, object: dict[str, any], result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
         if result is None:
@@ -312,8 +316,31 @@ class SharedCacheDataAccessor:
                     obj[key] = value
         return result
 
-    async def delete(self, storage_key: str, engine: str) -> None:
-        await self._shared_cache.delete(f"moonship:{engine}:{storage_key}")
+    async def delete(self, key: str, engine: str) -> None:
+        await self._shared_cache.delete(f"moonship:{engine}:{key}")
+
+    async def purge_orphaned_engine_entries(self, engine: str, curr_engine_id: str) -> None:
+        bulk_op = self._shared_cache.start_bulk()
+
+        keys = await self._shared_cache.keys(f"moonship:{engine}:*")
+        for key in keys:
+            if (":strategies" in key or ":strategy:" in key) and f":{curr_engine_id}:" not in key:
+                bulk_op.delete(key)
+
+        engine_ids = await self._shared_cache.list_get_elements(f"moonship:{engine}:ids")
+        for id in engine_ids:
+            if id != curr_engine_id:
+                bulk_op.list_remove(f"moonship:{engine}:ids", id)
+
+        engine_names = await self._shared_cache.list_get_elements("moonship:engines")
+        name_count = 0
+        for name in engine_names:
+            if name == engine:
+                name_count += 1
+        if name_count > 1:
+            bulk_op.list_remove("moonship:engines", engine, count=name_count - 1)
+
+        await bulk_op.execute()
 
 
 class MessageBus(abc.ABC):
