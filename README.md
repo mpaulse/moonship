@@ -110,27 +110,29 @@ The tables below describe the various configuration properties.
 
 ### Trading Engine Properties
 
-| Property | Description                                                                                                                                                                                                                                                                                                      |
-|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| moonship.engine.name                               | The name of the Trading Engine instance. Used to identify the instance in a multi-instance deployment. <br/><br/>Defaults to "engine".                                                                                                                                                                           |
-| moonship.markets.*MARKET_NAME*.candle_period | The default period to use in seconds when retrieving candle (K-line) information for the *MARKET_NAME* market.<br/><br/>Supported values:<ul><li>60 (1m)</li><li>300 (5m)</li><li>900 (15m)</li><li>1800 (30m)</li><li>3600 (1h)</li><li>86400 (24h)</li></ul>Defaults to 300.                                   |
-| moonship.markets.*MARKET_NAME*.client | The name of the Market Client implementation class that is used to communicate with the cryptocurrency exchange for the *MARKET_NAME* market.<br/><br/> Supported values:<ul><li>moonship.client.binance.BinanceClient</li><li>moonship.client.luno.LunoClient</li><li>moonship.client.valr.ValrClient</li></ul> |
+| Property                                                  | Description                                                                                                                                                                                                                                                                                                      |
+|-----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| moonship.engine.name                                      | The name of the Trading Engine instance. Used to identify the instance in a multi-instance deployment. <br/><br/>Defaults to "engine".                                                                                                                                                                           |
+| moonship.markets.*MARKET_NAME*.api_key                    | The API key for the *MARKET_NAME* market.<br/><br/>Defaults to the API key specified for the [Market Client](#market-client-properties).                                                                                                                                                                         |
+| moonship.markets.*MARKET_NAME*.api_secret                 | The API secret for the *MARKET_NAME* market.<br/><br/>Defaults to the API secret specified for the [Market Client](#market-client-properties).                                                                                                                                                                   |
+| moonship.markets.*MARKET_NAME*.candle_period              | The default period to use in seconds when retrieving candle (K-line) information for the *MARKET_NAME* market.<br/><br/>Supported values:<ul><li>60 (1m)</li><li>300 (5m)</li><li>900 (15m)</li><li>1800 (30m)</li><li>3600 (1h)</li><li>86400 (24h)</li></ul>Defaults to 300.                                   |
+| moonship.markets.*MARKET_NAME*.client                     | The name of the Market Client implementation class that is used to communicate with the cryptocurrency exchange for the *MARKET_NAME* market.<br/><br/> Supported values:<ul><li>moonship.client.binance.BinanceClient</li><li>moonship.client.luno.LunoClient</li><li>moonship.client.valr.ValrClient</li></ul> |
 | moonship.markets.*MARKET_NAME*.max_recent_trade_list_size | The maximum number of the most recent trades to maintain in memory for the *MARKET_NAME* market.<br/><br/>Defaults to 10000.                                                                                                                                                                                     |
-| moonship.markets.*MARKET_NAME*.symbol | The currency pair ticker symbol for the *MARKET_NAME* market. This must be a valid symbol listed at the cryptocurrency exchange. For example, "BTCUSDT".                                                                                                                                                         |
-| moonship.strategies.*STRATEGY_NAME*.algo | The name of the Trading Algorithm implementation class for the *STRATEGY_NAME* strategy.                                                                                                                                                                                                                         |
-| moonship.strategies.*STRATEGY_NAME*.auto_start | Indicates whether the *STRATEGY_NAME* strategy should automatically be run at start-up.<br/><br/>Supported values:<ul><li>true</li><li>false</li></ul>Defaults to false.                                                                                                                                         |
+| moonship.markets.*MARKET_NAME*.symbol                     | The currency pair ticker symbol for the *MARKET_NAME* market. This must be a valid symbol listed at the cryptocurrency exchange. For example, "BTCUSDT".                                                                                                                                                         |
+| moonship.strategies.*STRATEGY_NAME*.algo                  | The name of the Trading Algorithm implementation class for the *STRATEGY_NAME* strategy.                                                                                                                                                                                                                         |
+| moonship.strategies.*STRATEGY_NAME*.auto_start            | Indicates whether the *STRATEGY_NAME* strategy should automatically be run at start-up.<br/><br/>Supported values:<ul><li>true</li><li>false</li></ul>Defaults to false.                                                                                                                                         |
 | moonship.strategies.*STRATEGY_NAME*.*ADDITIONAL_PROPERTY* | Any additional property supported by the Trading Algorithm implementation class that should be set for the *STRATEGY_NAME* strategy.                                                                                                                                                                             |
 
 ### Market Client Properties
 
-| Property                    | Description             |
-|-----------------------------|-------------------------|
-| moonship.binance.api_key    | The Binance API key.    |
-| moonship.binance.api_secret | The Binance API secret. |
-| moonship.luno.api_key       | The Luno API key.       |
-| moonship.luno.api_secret    | The Luno API secret.    |
-| moonship.valr.api_key       | The VALR API key.       |
-| moonship.valr.api_secret | The VALR API secret.    |
+| Property                    | Description                                                                                                          |
+|-----------------------------|----------------------------------------------------------------------------------------------------------------------|
+| moonship.binance.api_key    | The Binance API key. Can also be specified per market if different Binance markets require different API keys.       |
+| moonship.binance.api_secret | The Binance API secret. Can also be specified per market if different Binance markets require different API secrets. |
+| moonship.luno.api_key       | The Luno API key. Can also be specified per market if different Luno markets require different API keys.             |
+| moonship.luno.api_secret    | The Luno API secret. Can also be specified per market if different Luno markets require different API secrets.       |
+| moonship.valr.api_key       | The VALR API key. Can also be specified per market if different VALR markets require different API keys.             |
+| moonship.valr.api_secret | The VALR API secret. Can also be specified per market if different VALR markets require different API secrets.       |
 
 ### API Service Properties
 

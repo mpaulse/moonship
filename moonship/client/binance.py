@@ -45,12 +45,16 @@ class BinanceClient(AbstractWebClient):
     order_limiter = aiolimiter.AsyncLimiter(100, 10)
 
     def __init__(self, market_name: str, app_config: Config):
-        api_key = app_config.get("moonship.binance.api_key")
+        api_key = app_config.get(f"moonship.markets.{market_name}.api_key")
         if not isinstance(api_key, str):
-            raise ConfigException("Binance API key not configured")
-        self.api_secret = app_config.get("moonship.binance.api_secret")
+            api_key = app_config.get("moonship.binance.api_key")
+            if not isinstance(api_key, str):
+                raise ConfigException("Binance API key not configured")
+        self.api_secret = app_config.get(f"moonship.markets.{market_name}.api_secret")
         if not isinstance(self.api_secret, str):
-            raise ConfigException("Binance API secret not configured")
+            self.api_secret = app_config.get("moonship.binance.api_secret")
+            if not isinstance(self.api_secret, str):
+                raise ConfigException("Binance API secret not configured")
         self.last_order_book_update_id = -1
         self.order_book_event_buf: list[dict] = []
         self.order_details_cache: dict[str, FullOrderDetails] = {}
