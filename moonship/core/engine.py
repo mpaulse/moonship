@@ -114,6 +114,7 @@ class MarketManager(MarketSubscriber):
 
     async def on_order_book_item_added(self, event: OrderBookItemAddedEvent) -> None:
         self.market._order_book.add(event.order)
+        await self._check_pending_order_updates()
 
     async def on_order_book_item_removed(self, event: OrderBookItemRemovedEvent) -> None:
         self.market._order_book.remove(event.order_id)
@@ -150,15 +151,22 @@ class MarketManager(MarketSubscriber):
             logger.debug(f"Trade executed for pending order {pending_order_id}")
             await self.market._handle_pending_order_update(pending_order_id)
         else:  # In case trade events for pending orders did not arrive or were lost
-            pending_order_ids: list[str] = []
-            for order in self.market._pending_orders.values():
-                if order.limit_price > 0 \
-                        and ((order.limit_price > self.market._current_price and order.action == OrderAction.BUY)
-                             or (order.limit_price < self.market._current_price and order.action == OrderAction.SELL)):
-                    logger.debug(f"Checking if pending order {order.id} was updated")
-                    pending_order_ids.append(order.id)
-            for order_id in pending_order_ids:
-                await self.market._handle_pending_order_update(order_id)
+            await self._check_pending_order_updates(market_price_changed=True)
+
+    async def _check_pending_order_updates(self, market_price_changed: bool = False) -> None:
+        pending_order_ids: list[str] = []
+        for order in self.market._pending_orders.values():
+            if order.limit_price > 0 \
+                    and ((order.action == OrderAction.BUY
+                          and (order.limit_price >= self.market.ask_price
+                               or (market_price_changed and order.limit_price >= self.market.current_price)))
+                         or (order.action == OrderAction.SELL
+                             and (order.limit_price <= self.market.bid_price
+                                  or (market_price_changed and order.limit_price <= self.market.current_price)))):
+                logger.debug(f"Checking if pending order {order.id} was updated")
+                pending_order_ids.append(order.id)
+        for order_id in pending_order_ids:
+            await self.market._handle_pending_order_update(order_id)
 
     async def on_order_status_update(self, event: OrderStatusUpdateEvent) -> None:
         # For MarketClients capable of receiving order update stream events
