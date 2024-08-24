@@ -46,6 +46,8 @@ __all__ = [
     "OrderStatus",
     "round_amount",
     "Rounding",
+    "StopLimitOrder",
+    "StopType",
     "Ticker",
     "TimeInForce",
     "Timestamp",
@@ -133,11 +135,26 @@ class TimeInForce(Enum):
 
 
 @dataclass
-class LimitOrder(AbstractOrder):
+class AbstractLimitOrder(AbstractOrder):
     price: Amount = Amount(0)
     quantity: Amount = Amount(0)
-    post_only: bool = True
     time_in_force: Optional[TimeInForce] = None
+
+
+@dataclass
+class LimitOrder(AbstractLimitOrder):
+    post_only: bool = True
+
+
+class StopType(Enum):
+    STOP_LOSS = 0
+    TAKE_PROFIT = 1
+
+
+@dataclass
+class StopLimitOrder(AbstractLimitOrder):
+    stop_type: StopType = StopType.STOP_LOSS
+    stop_price: Amount = Amount(0)
 
 
 @dataclass
