@@ -170,6 +170,12 @@ class ValrClient(AbstractWebClient):
         }
         if from_time is not None:
             params["startTime"] = from_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+            # Max. candles allowed to be returned is 100. The endTime must explicitly be
+            # fixed to period * 100 seconds after the startTime or an error occurs if the
+            # date range covers more than 100 candles.
+            end_time = from_time + datetime.timedelta(seconds=period.value * 100)
+            params["endTime"] = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         try:
             candles: list[Candle] = []
             async with self.public_api_limiter:
