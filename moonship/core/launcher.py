@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,8 @@ from moonship.core.monitor import Monitor
 from moonship.core.service import Service
 
 __all__ = [
-    "launch"
+    "launch",
+    "configure_logging"
 ]
 
 logger = logging.getLogger("moonship")
