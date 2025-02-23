@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 from typing import Union
 
 __all__ = [
+    "Strategy",
     "TradingAlgo"
 ]
 

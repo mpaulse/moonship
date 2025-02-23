@@ -23,6 +23,7 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import json
+import uuid
 
 import aiohttp
 import aiolimiter
@@ -35,12 +36,14 @@ from dataclasses import dataclass
 from datetime import timezone
 from moonship.core import *
 from moonship.client.web import *
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 API_BASE_URL = "https://api.valr.com"
 API_VERSION_1 = "v1"
 API_VERSION_2 = "v2"
 STREAM_BASE_URL = "wss://api.valr.com"
+GET_TRADES_MAX_LIMIT = 100
+
 
 @dataclass
 class ValrFullOrderDetails(FullOrderDetails):
@@ -136,46 +139,84 @@ class ValrClient(AbstractWebClient):
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
     async def get_recent_trades(self, limit: int) -> list[Trade]:
+        """Gets the recent trades in descending order."""
         try:
             trades: list[Trade] = []
             before_id = None
-            for i in range(0, limit, 100):
-                async with self.limiter:
-                    path = f"/{API_VERSION_1}/marketdata/{self.market.symbol}/tradehistory?limit=100"
-                    if before_id is not None:
-                        path += f"&beforeId={before_id}"
-                    async with self.http_session.get(
-                            f"{API_BASE_URL}{path}",
-                            headers=self._get_auth_headers("GET", path)) as rsp:
-                        await self.handle_error_response(rsp)
-                        trades_data = await rsp.json()
-                        if isinstance(trades_data, list):
-                            for data in trades_data:
-                                trades.append(
-                                    Trade(
-                                        timestamp=self._to_timestamp(data.get("tradedAt")),
-                                        symbol=data.get("currencyPair"),
-                                        price=to_amount(data.get("price")),
-                                        quantity=to_amount(data.get("quantity")),
-                                        taker_action=OrderAction.BUY if data.get(
-                                            "takerSide") == "buy" else OrderAction.SELL))
-                                before_id = data.get("id")
+            for i in range(0, limit, GET_TRADES_MAX_LIMIT):
+                chunk = await self._get_trades({ "beforeId": before_id } if before_id is not None else {})
+                for trade in chunk:
+                    trades.append(trade)
+                if len(chunk) == 0:
+                    break
+                before_id = trades[-1].id
             return trades
         except Exception as e:
-            raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+            raise MarketException(
+                f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+
+    async def get_trades(self, handler: Callable[[list[Trade]], None], from_time: Timestamp) -> None:
+        """Gets the trade in descending order."""
+        try:
+            before_id = None
+            done = False
+            while not done:
+                # VALR seems to return weird/inconsistent results when using the
+                # startTime parameter, so we use the pagination approach instead
+                # and do our own timestamp filtering.
+                chunk = await self._get_trades({ "beforeId": before_id } if before_id is not None else {})
+                trades = []
+                for trade in chunk:
+                    if trade.timestamp >= from_time:
+                        trades.append(trade)
+                    else:
+                        done = True
+                        break
+                if len(trades) > 0:
+                    handler(trades)
+                    before_id = trades[-1].id
+                else:
+                    done = True
+        except Exception as e:
+            raise MarketException(
+                f"Could not retrieve trades for {self.market.symbol}", self.market.name) from e
+
+    async def _get_trades(self, params: dict[str, any]) -> list[Trade]:
+        path = f"/{API_VERSION_1}/marketdata/{self.market.symbol}/tradehistory?limit={GET_TRADES_MAX_LIMIT}"
+        for k, v in params.items():
+            path += f"&{k}={v}"
+
+        trades = []
+        async with self.limiter:
+            async with self.http_session.get(
+                    f"{API_BASE_URL}{path}",
+                    headers=self._get_auth_headers("GET", path)) as rsp:
+                await self.handle_error_response(rsp)
+                trades_data = await rsp.json()
+                if isinstance(trades_data, list):
+                    for data in trades_data:
+                        trades.append(
+                            Trade(
+                                id=data.get("id"),
+                                timestamp=self._to_timestamp(data.get("tradedAt")),
+                                symbol=data.get("currencyPair"),
+                                price=to_amount(data.get("price")),
+                                quantity=to_amount(data.get("quantity")),
+                                taker_action=OrderAction.BUY if data.get("takerSide") == "buy" else OrderAction.SELL))
+        return trades
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
         params = {
             "periodSeconds": period.value
         }
         if from_time is not None:
-            params["startTime"] = from_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            params["startTime"] = self._to_iso_format(from_time)
 
             # Max. candles allowed to be returned is 100. The endTime must explicitly be
             # fixed to period * 100 seconds after the startTime or an error occurs if the
             # date range covers more than 100 candles.
             end_time = from_time + datetime.timedelta(seconds=period.value * 100)
-            params["endTime"] = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            params["endTime"] = self._to_iso_format(end_time)
         try:
             candles: list[Candle] = []
             async with self.public_api_limiter:
@@ -438,6 +479,7 @@ class ValrClient(AbstractWebClient):
             TradeEvent(
                 timestamp=timestamp,
                 trade=Trade(
+                    id=uuid.uuid4().hex, # Internally-assigned ID
                     timestamp=timestamp,
                     symbol=self.market.symbol,
                     quantity=to_amount(data.get("quantity")),
@@ -488,3 +530,6 @@ class ValrClient(AbstractWebClient):
                 case -19:
                     return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
         return MarketErrorCode.UNKNOWN
+
+    def _to_iso_format(self, timestamp: Timestamp) -> str:
+        return timestamp.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

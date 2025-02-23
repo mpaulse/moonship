@@ -32,7 +32,7 @@ import urllib.parse
 from datetime import timezone
 from moonship.core import *
 from moonship.client.web import *
-from typing import Union
+from typing import Callable, Union
 
 API_BASE_URL = "https://api.binance.com/api/v3"
 STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
@@ -127,29 +127,67 @@ class BinanceClient(AbstractWebClient):
                 return await rsp.json()
 
     async def get_recent_trades(self, limit) -> list[Trade]:
-        params = {
-            "symbol": self.market.symbol,
-            "limit": limit
-        }
+        """Gets the recent trades in ascending order."""
         try:
-            async with self.request_weight_limiter:
-                async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
-                    await self.handle_error_response(rsp)
-                    trades: list[Trade] = []
-                    trades_data = await rsp.json()
-                    if isinstance(trades_data, list):
-                        for data in trades_data:
-                            trades.append(
-                                Trade(
-                                    timestamp=to_utc_timestamp(data.get("time")),
-                                    symbol=self.market.symbol,
-                                    price=to_amount(data.get("price")),
-                                    quantity=to_amount(data.get("qty")),
-                                    taker_action=OrderAction.SELL if data.get("isBuyerMaker") is True
-                                    else OrderAction.BUY))
-                    return trades
+            return await self._get_trades(f"{API_BASE_URL}/trades", { "limit": limit })
         except Exception as e:
-            raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+            raise MarketException(
+                f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+
+    async def get_trades(self, handler: Callable[[list[Trade]], None], from_time: Timestamp) -> None:
+        """Gets the trades in ascending order."""
+        try:
+            from_id = None
+            while True:
+                params = { "fromId": from_id } if from_id is not None \
+                    else { "startTime" : int(from_time.timestamp() * 1000)}
+                trades = await self._get_trades(f"{API_BASE_URL}/aggTrades", params)
+                if len(trades) == 0:
+                    break
+                handler(trades)
+                from_id = int(trades[-1].id)
+        except Exception as e:
+            raise MarketException(
+                f"Could not retrieve trades for {self.market.symbol}", self.market.name) from e
+
+    async def _get_trades(self, url: str, params: dict[str, any]) -> list[Trade]:
+        params["symbol"] = self.market.symbol
+        async with self.request_weight_limiter:
+            async with self.http_session.get(url, params=params) as rsp:
+                await self.handle_error_response(rsp)
+                trades: list[Trade] = []
+                trades_data = await rsp.json()
+                if isinstance(trades_data, list):
+                    for data in trades_data:
+                        id = data.get("id")
+                        if id is None:
+                            id = data.get("a") # Aggregate trade ID
+
+                        timestamp = data.get("time")
+                        if timestamp is None:
+                            timestamp = data.get("T")
+
+                        price = data.get("price")
+                        if price is None:
+                            price = data.get("p")
+
+                        quantity = data.get("qty")
+                        if quantity is None:
+                            quantity = data.get("q")
+
+                        is_buyer_maker = data.get("isBuyerMaker")
+                        if is_buyer_maker is None:
+                            is_buyer_maker = data.get("m")
+
+                        trades.append(
+                            Trade(
+                                id=str(id),
+                                timestamp=to_utc_timestamp(timestamp),
+                                symbol=self.market.symbol,
+                                price=to_amount(price),
+                                quantity=to_amount(quantity),
+                                taker_action=OrderAction.SELL if is_buyer_maker is True else OrderAction.BUY))
+                return trades
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
         match period:
@@ -382,6 +420,7 @@ class BinanceClient(AbstractWebClient):
                 TradeEvent(
                     timestamp=to_utc_timestamp(event.get("E")),
                     trade=Trade(
+                        id=str(event.get("t")),
                         timestamp=to_utc_timestamp(event.get("T")),
                         symbol=event.get("s"),
                         quantity=quantity,

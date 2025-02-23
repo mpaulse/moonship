@@ -29,9 +29,9 @@ import logging
 import sortedcontainers
 
 from dataclasses import dataclass, field
-from datetime import timezone
+from datetime import timezone, timedelta
 from moonship.core import *
-from typing import Iterator, Mapping, Optional, Union
+from typing import Callable, Iterator, Mapping, Optional, Union
 
 __all__ = [
     "CandleEvent",
@@ -153,6 +153,10 @@ class MarketClient(abc.ABC):
 
     @abc.abstractmethod
     async def get_recent_trades(self, limit: int) -> list[Trade]:
+        pass
+
+    @abc.abstractmethod
+    async def get_trades(self, handler: Callable[[list[Trade]], None], from_time: Timestamp) -> None:
         pass
 
     @abc.abstractmethod
@@ -362,11 +366,49 @@ class Market:
         return await self._client.get_ticker()
 
     async def get_recent_trades(self, limit: int = 1000) -> list[Trade]:
+        """Gets the most recent trades executed at the exchange.
+
+        The results may be returned in any order (ascending, descending or unordered),
+        depending on the exchange API and/or the MarketClient implementation. The caller
+        is responsible for re-ordering the results, if required.
+
+        The limit parameter is just a hint. The maximum limit imposed by the exchange API
+        will apply if the given value is greater than the API's limit.
+        """
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         return await self._client.get_recent_trades(limit)
 
+    async def get_trades(
+        self,
+        handler: Callable[[list[Trade]], None],
+        from_time: Timestamp = Timestamp.now(tz=timezone.utc) - timedelta(minutes=5)
+    ) -> None:
+        """Gets the trades executed at the exchange, starting from a particular timestamp
+        up to the current time, and calls the given handler function to process the
+        retrieved list, one chunk at a time.
+
+        The results may be returned in any order (ascending, descending or unordered),
+        depending on the exchange API and/or the MarketClient implementation. The handler
+        function is responsible for re-ordering the results, if required.
+
+        Duplicates may also be present in the list of results, depending on the MarketClient
+        implementation (Trade objects with the same id). The handler function is expected
+        to cater for this.
+        """
+        if self._status == MarketStatus.CLOSED:
+            raise MarketException(f"Market closed", self.name)
+        return await self._client.get_trades(handler, from_time)
+
     async def get_candles(self, period: CandlePeriod = None, from_time: Timestamp = None) -> list[Candle]:
+        """Gets candles for the specified period, starting from a particular timestamp
+        up to either the current time or some maximum number limit imposed by the exchange
+        API, whichever comes first.
+
+        The results may be returned in any order (ascending, descending or unordered),
+        depending on the exchange and/or the MarketClient implementation. The caller
+        is responsible for re-ordering the results, if required.
+        """
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         if period is None:

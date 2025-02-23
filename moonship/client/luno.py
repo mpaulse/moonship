@@ -29,12 +29,13 @@ import datetime
 
 from moonship.core import *
 from moonship.client.web import *
-from typing import Union
+from typing import Callable, Union
 
 API_BASE_URL = "https://api.luno.com/api/1"
 EXCHANGE_API_BASE_URL = "https://api.luno.com/api/exchange/1"
 STREAM_BASE_URL = "wss://ws.luno.com/api/1/stream"
 LUNO_MAX_DECIMALS = MAX_DECIMALS
+GET_TRADES_MAX_LIMIT = 100
 
 
 class LunoClient(AbstractWebClient):
@@ -101,27 +102,53 @@ class LunoClient(AbstractWebClient):
             raise MarketException(f"Could not retrieve ticker for {self.market.symbol}", self.market.name) from e
 
     async def get_recent_trades(self, limit: int) -> list[Trade]:
-        params = {
-            "pair": self.market.symbol
-        }
+        """Gets the recent trades in descending order."""
         try:
-            async with self.limiter:
-                async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
-                    await self.handle_error_response(rsp)
-                    trades: list[Trade] = []
-                    trades_data = (await rsp.json())["trades"]
-                    if isinstance(trades_data, list):
-                        for data in trades_data:
-                            trades.append(
-                                Trade(
-                                    timestamp=to_utc_timestamp(data.get("timestamp")),
-                                    symbol=data.get("pair"),
-                                    price=to_amount(data.get("price")),
-                                    quantity=to_amount(data.get("volume")),
-                                    taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
-                    return trades
+            return await self._get_trades()
         except Exception as e:
-            raise MarketException(f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+            raise MarketException(
+                f"Could not retrieve recent trades for {self.market.symbol}", self.market.name) from e
+
+    async def get_trades(self, handler: Callable[[list[Trade]], None], from_time: Timestamp) -> None:
+        """Gets the trades in descending order per chunk."""
+        from_time = from_time - datetime.timedelta(milliseconds=1) # Time is exclusive
+        try:
+            while True:
+                trades = await self._get_trades(from_time)
+                if len(trades) > 0:
+                    handler(trades)
+                    # Ensure trades with this same timestamp that are not in this chunk are also retrieved.
+                    # Result in duplicates for the handler to take care of, but that is better than gaps.
+                    from_time = trades[0].timestamp - datetime.timedelta(milliseconds=1)
+                if len(trades) < GET_TRADES_MAX_LIMIT:
+                    break
+        except Exception as e:
+            raise MarketException(
+                f"Could not retrieve trades trades for {self.market.symbol}", self.market.name) from e
+
+    async def _get_trades(self, from_timestamp_excl: Timestamp = None) -> list[Trade]:
+        params = {
+            "pair": self.market.symbol,
+            "limit": GET_TRADES_MAX_LIMIT
+        }
+        if from_timestamp_excl is not None:
+            params["since"] = int(from_timestamp_excl.timestamp() * 1000)
+        async with self.limiter:
+            async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
+                await self.handle_error_response(rsp)
+                trades: list[Trade] = []
+                trades_data = (await rsp.json())["trades"]
+                if isinstance(trades_data, list):
+                    for data in trades_data:
+                        trades.append(
+                            Trade(
+                                id=str(data.get("sequence")),
+                                timestamp=to_utc_timestamp(data.get("timestamp")),
+                                symbol=data.get("pair"),
+                                price=to_amount(data.get("price")),
+                                quantity=to_amount(data.get("volume")),
+                                taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
+                return trades
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
         params = {
@@ -129,7 +156,7 @@ class LunoClient(AbstractWebClient):
             "duration": period.value
         }
         if from_time is not None:
-            params["since"] = int(from_time.timestamp()) * 1000
+            params["since"] = int(from_time.timestamp() * 1000)
         else:
             params["since"] = utc_timestamp_now_msec() - (period.value * 1000 * 1000)  # Max. 1000 candles returned
         try:
@@ -273,6 +300,7 @@ class LunoClient(AbstractWebClient):
                         TradeEvent(
                             timestamp=timestamp,
                             trade=Trade(
+                                id=str(data.get("sequence")),
                                 timestamp=timestamp,
                                 symbol=self.market.symbol,
                                 quantity=quantity,

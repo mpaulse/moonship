@@ -96,6 +96,7 @@ class OrderAction(Enum):
 
 @dataclass
 class Trade:
+    id: str
     timestamp: Timestamp
     symbol: str
     price: Amount
