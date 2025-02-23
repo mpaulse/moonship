@@ -144,7 +144,7 @@ class LunoClient(AbstractWebClient):
                             Trade(
                                 id=str(data.get("sequence")),
                                 timestamp=to_utc_timestamp(data.get("timestamp")),
-                                symbol=data.get("pair"),
+                                symbol=self.market.symbol,
                                 price=to_amount(data.get("price")),
                                 quantity=to_amount(data.get("volume")),
                                 taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
