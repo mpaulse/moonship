@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -36,6 +36,7 @@ from typing import Callable, Union
 
 API_BASE_URL = "https://api.binance.com/api/v3"
 STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
+GET_TRADES_MAX_LIMIT = 1000
 
 
 class BinanceClient(AbstractWebClient):
@@ -140,7 +141,8 @@ class BinanceClient(AbstractWebClient):
             from_id = None
             while True:
                 params = { "fromId": from_id } if from_id is not None \
-                    else { "startTime" : int(from_time.timestamp() * 1000)}
+                    else { "startTime" : int(from_time.timestamp() * 1000) }
+                params["limit"] = GET_TRADES_MAX_LIMIT
                 trades = await self._get_trades(f"{API_BASE_URL}/aggTrades", params)
                 if len(trades) == 0:
                     break
