@@ -232,7 +232,8 @@ class BinanceClient(AbstractWebClient):
                                         low=to_amount(data[3]),
                                         close=to_amount(data[4]),
                                         volume=to_amount(data[5]),
-                                        end_time=to_utc_timestamp(data[6])))
+                                        end_time=to_utc_timestamp(data[6]),
+                                        buy_volume=to_amount(data[9])))
                     return candles
         except Exception as e:
             raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e

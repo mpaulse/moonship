@@ -24,13 +24,11 @@
 
 import abc
 import decimal
-import enum
 
 from dataclasses import dataclass
 from datetime import datetime as Timestamp, timezone
 from decimal import Decimal as Amount
 from enum import Enum
-from typing import Optional
 
 __all__ = [
     "Amount",
@@ -138,7 +136,7 @@ class LimitOrder(AbstractOrder):
     price: Amount = Amount(0)
     quantity: Amount = Amount(0)
     post_only: bool = True
-    time_in_force: Optional[TimeInForce] = None
+    time_in_force: TimeInForce | None = None
 
 
 @dataclass
@@ -186,7 +184,8 @@ class Candle:
     high: Amount
     low: Amount
     close: Amount
-    volume: Optional[Amount] = None
+    volume: Amount | None = None
+    buy_volume: Amount | None = None
 
 
 def to_amount(s: str) -> Amount:
