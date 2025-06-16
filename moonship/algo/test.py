@@ -1,4 +1,4 @@
-#  Copyright (c) 2021, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -25,14 +25,13 @@
 import logging
 
 from moonship.core import *
-from typing import Union
 
 
 class LogMarketInfo(TradingAlgo):
 
     async def on_order_book_update(
             self,
-            event: Union[OrderBookInitEvent, OrderBookItemAddedEvent, OrderBookItemRemovedEvent]) -> None:
+            event: OrderBookInitEvent | OrderBookItemAddedEvent | OrderBookItemRemovedEvent) -> None:
         self.log_market_info(event)
 
     async def on_ticker(self, event: TickerEvent) -> None:

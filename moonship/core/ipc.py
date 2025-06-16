@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -30,7 +30,7 @@ import uuid
 
 from enum import Enum
 from moonship.core import *
-from typing import Awaitable, Callable, Optional, Union
+from typing import Any, Awaitable, Callable
 
 __all__ = [
     "MessageBus",
@@ -185,14 +185,14 @@ class SharedCacheDataAccessor:
     async def close(self) -> None:
         await self._shared_cache.close()
 
-    async def add_strategy(self, name, config: Optional[Config], engine: str, engine_id: str) -> None:
+    async def add_strategy(self, name, config: Config | None, engine: str, engine_id: str) -> None:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
         b = self._shared_cache.start_bulk()
         self._add_strategy(name, config, engine, engine_id, b)
         await b.execute()
 
-    def _add_strategy(self, name, config: Optional[Config], engine: str, engine_id: str, op: SharedCacheBulkOp) -> None:
+    def _add_strategy(self, name, config: Config | None, engine: str, engine_id: str, op: SharedCacheBulkOp) -> None:
         config = self._to_cache_map_entries(config.dict) if config is not None else {}
         op \
             .set_add(f"moonship:{engine}:{engine_id}:strategies", name) \
@@ -211,11 +211,11 @@ class SharedCacheDataAccessor:
             .delete(f"moonship:{engine}:{engine_id}:strategy:{name}") \
             .delete(f"moonship:{engine}:{engine_id}:strategy:{name}:config")
 
-    async def get_strategy(self, name: str, engine: str, engine_id: str = None) -> Optional[dict[str, any]]:
+    async def get_strategy(self, name: str, engine: str, engine_id: str = None) -> dict[str, Any] | None:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
         key = f"{engine_id}:strategy:{name}"
-        strategy: dict[str, any] = await self.map_get_entries(key, engine)
+        strategy: dict[str, Any] = await self.map_get_entries(key, engine)
         if len(strategy) == 0:
             return None
         strategy["name"] = name
@@ -223,7 +223,7 @@ class SharedCacheDataAccessor:
         strategy["config"] = await self.map_get_entries(f"{key}:config", engine)
         return strategy
 
-    async def get_strategies(self, criteria: dict[str, str] = None) -> list[dict[str, any]]:
+    async def get_strategies(self, criteria: dict[str, str] = None) -> list[dict[str, Any]]:
         if criteria is None:
             criteria = {}
         strategies = []
@@ -245,12 +245,12 @@ class SharedCacheDataAccessor:
                         strategies.append(strategy)
         return strategies
 
-    async def update_strategy(self, name: str, data: dict[str, any], engine: str, engine_id: str = None) -> None:
+    async def update_strategy(self, name: str, data: dict[str, Any], engine: str, engine_id: str = None) -> None:
         if engine_id is None:
             engine_id = await self.get_engine_id(engine)
         await self.map_put(f"{engine_id}:strategy:{name}", data, engine)
 
-    async def add_engine(self, name: str, id: str, strategies_config: dict[str, Optional[Config]]) -> None:
+    async def add_engine(self, name: str, id: str, strategies_config: dict[str, Config | None]) -> None:
         await self._shared_cache.open()
         b = self._shared_cache.start_bulk() \
             .list_push_tail("moonship:engines", name) \
@@ -271,16 +271,16 @@ class SharedCacheDataAccessor:
     async def get_engine_id(self, engine: str) -> str:
         return await self._shared_cache.list_get_tail(f"moonship:{engine}:ids")
 
-    async def map_put(self, key: str, data: dict[str, any], engine: str) -> None:
+    async def map_put(self, key: str, data: dict[str, Any], engine: str) -> None:
         await self._shared_cache.map_put(
             f"moonship:{engine}:{key}",
             self._to_cache_map_entries(data))
 
-    async def map_get_entries(self, key: str, engine: str) -> dict[str, any]:
+    async def map_get_entries(self, key: str, engine: str) -> dict[str, Any]:
         return self._from_cache_map_entries(
             await self._shared_cache.map_get_entries(f"moonship:{engine}:{key}"))
 
-    def _to_cache_map_entries(self, object: dict[str, any], result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
+    def _to_cache_map_entries(self, object: dict[str, Any], result: dict[str, str] = None, key_prefix="") -> dict[str, str]:
         if result is None:
             result = {}
         for key, value in object.items():
@@ -294,7 +294,7 @@ class SharedCacheDataAccessor:
                 result[f"{key_prefix}{key}"] = str(value)
         return result
 
-    def _from_cache_map_entries(self, entries: dict[str, str]) -> dict[str, any]:
+    def _from_cache_map_entries(self, entries: dict[str, str]) -> dict[str, Any]:
         result = {}
         for key, value in entries.items():
             obj = result
@@ -376,11 +376,11 @@ class MessageBus(abc.ABC):
         recv_channel: str,
         timeout_sec: int = 20,
         recv_count: int = 1
-    ) -> Union[dict[str, any], list[dict[str, any]]]:
+    ) -> dict[str, Any] | list[dict[str, Any]]:
         await self.subscribe(recv_channel, self._receive_handler)
         if "id" not in msg:
             msg["id"] = uuid.uuid4().hex
-        recv_msgs: list[dict[str, any]] = []
+        recv_msgs: list[dict[str, Any]] = []
         recv_futures: list[asyncio.Future] = []
         for i in range(0, recv_count):
             recv_futures.append(asyncio.get_event_loop().create_future())
@@ -398,7 +398,7 @@ class MessageBus(abc.ABC):
             del self._recv_futures[msg["id"]]
         return recv_msgs if len(recv_msgs) > 1 else recv_msgs[0]
 
-    async def _receive_handler(self, msg: dict[str, any], channel: str) -> None:
+    async def _receive_handler(self, msg: dict[str, Any], channel: str) -> None:
         id = msg.get("id")
         if id is not None:
             recv_futures = self._recv_futures.get(id)

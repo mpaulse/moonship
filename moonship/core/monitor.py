@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -35,7 +35,7 @@ from moonship.core import *
 from moonship.core.ipc import SharedCacheDataAccessor
 from moonship.core.redis import RedisSharedCache
 from moonship.core.service import Service
-from typing import Optional
+from typing import Any
 
 __all__ = [
     "Monitor"
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class Action(abc.ABC):
 
     @abc.abstractmethod
-    async def execute(self, alert: "Alert", strategy_data: dict[str, any]) -> None:
+    async def execute(self, alert: "Alert", strategy_data: dict[str, Any]) -> None:
         pass
 
 
@@ -78,7 +78,7 @@ class EmailAction(Action):
         if isinstance(self._to_addresses, str):
             self._to_addresses = [self._to_addresses]
 
-    async def execute(self, alert: "Alert", strategy_data: dict[str, any]) -> None:
+    async def execute(self, alert: "Alert", strategy_data: dict[str, Any]) -> None:
         logger.debug(f"Sending email to {self._to_addresses} for {alert.name} alert")
         msg = MIMEText(
 f"""Hello,
@@ -120,7 +120,7 @@ class Alert:
         self._actions = actions
         self._matched_strategy_refs: set[str] = set()
 
-    async def process(self, strategies_data: list[dict[str, any]]) -> None:
+    async def process(self, strategies_data: list[dict[str, Any]]) -> None:
         for strategy_data in strategies_data:
             strategy_ref = f"{strategy_data.get("name")}@{strategy_data.get("engine")}"
             if self._rule.matches(strategy_data):
@@ -144,7 +144,7 @@ class Monitor(Service):
         self._alerts: list[Alert] = []
         self._init_alerts(config)
         self._shared_cache = SharedCacheDataAccessor(RedisSharedCache(config))
-        self._run_task: Optional[asyncio.Task] = None
+        self._run_task: asyncio.Task | None = None
 
     def _init_actions(self, config: Config) -> None:
         if "moonship.monitor.email" in config:

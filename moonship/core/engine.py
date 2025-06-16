@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -33,7 +33,7 @@ from moonship.core.ipc import *
 from moonship.core.redis import *
 from moonship.core.service import *
 from moonship.core.strategy import Strategy
-from typing import Optional
+from typing import Any
 
 DEFAULT_MAX_RECENT_TRADE_LIST_SIZE = 10_000
 DEFAULT_MAX_RECENT_CANDLE_LIST_SIZE = 10_000
@@ -176,7 +176,7 @@ class MarketManager(MarketSubscriber):
         while True:
             try:
                 now = Timestamp.now(timezone.utc)
-                latest_candle: Optional[Candle] = None
+                latest_candle: Candle | None = None
                 from_time = None
 
                 if len(self.market._recent_candles) > 0:
@@ -218,8 +218,8 @@ class TradingEngine(Service):
         self.name = config.get("moonship.engine.name")
         if not isinstance(self.name, str):
             self.name = DEFAULT_ENGINE_NAME
-        self.shared_cache: Optional[SharedCacheDataAccessor] = None
-        self.message_bus: Optional[MessageBus] = None
+        self.shared_cache: SharedCacheDataAccessor | None = None
+        self.message_bus: MessageBus | None = None
         if config.get("moonship.redis") is not None:
             self.shared_cache = SharedCacheDataAccessor(RedisSharedCache(config))
             self.message_bus = RedisMessageBus(config)
@@ -329,7 +329,7 @@ class TradingEngine(Service):
             await strategy.stop()
             logger.info(f"Stopped {strategy.name} strategy")
 
-    async def on_msg_received(self, msg: dict[str, any], channel: str) -> None:
+    async def on_msg_received(self, msg: dict[str, Any], channel: str) -> None:
         if msg.get("engine") != self.name:
             return
 
@@ -364,7 +364,7 @@ class TradingEngine(Service):
         rsp |= rsp_data
         await self.message_bus.publish(rsp, "moonship:message:response")
 
-    async def on_configure_strategy_msg(self, msg: dict[str, any], add: bool) -> (MessageResult, dict[str, any]):
+    async def on_configure_strategy_msg(self, msg: dict[str, Any], add: bool) -> (MessageResult, dict[str, Any]):
         name = msg.get("strategy")
         if name is None or (add and name in self.strategies) or (not add and name not in self.strategies):
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
@@ -399,7 +399,7 @@ class TradingEngine(Service):
             logger.exception(f"Failed to {'add' if add else 'update'} strategy {name}")
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "config"}
 
-    async def on_remove_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+    async def on_remove_strategy_msg(self, msg: dict[str, Any]) -> (MessageResult, dict[str, Any]):
         strategy = msg.get("strategy")
         if strategy is None or strategy not in self.strategies:
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
@@ -409,14 +409,14 @@ class TradingEngine(Service):
         await self.shared_cache.remove_strategy(strategy, self.name, self.id)
         return MessageResult.SUCCESS, {}
 
-    async def on_start_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+    async def on_start_strategy_msg(self, msg: dict[str, Any]) -> (MessageResult, dict[str, Any]):
         strategy = msg.get("strategy")
         if strategy is None or strategy not in self.strategies:
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
         await self.start_strategy(strategy)
         return MessageResult.SUCCESS, {}
 
-    async def on_stop_strategy_msg(self, msg: dict[str, any]) -> (MessageResult, dict[str, any]):
+    async def on_stop_strategy_msg(self, msg: dict[str, Any]) -> (MessageResult, dict[str, Any]):
         strategy = msg.get("strategy")
         if strategy is None or strategy not in self.strategies:
             return MessageResult.MISSING_OR_INVALID_PARAMETER, {"parameter": "strategy"}
@@ -433,7 +433,7 @@ class TradingEngine(Service):
         logger.info(f"Loaded {key} {class_name if version is None else f'{class_name} (version {version})'}")
         return cls
 
-    def get_class_and_version(self, class_name: str) -> (Optional[type], Optional[str]):
+    def get_class_and_version(self, class_name: str) -> (type | None, str | None):
         try:
             module_name, class_name = class_name.rsplit(".", 1)
             module = importlib.import_module(module_name)

@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -25,7 +25,7 @@
 import aiohttp.typedefs
 import enum
 
-from typing import Tuple, Optional
+from typing import Any, Tuple
 
 __all__ = [
     "ConfigException",
@@ -43,10 +43,10 @@ class HttpResponseException(aiohttp.ClientResponseError):
             self,
             request_info: aiohttp.RequestInfo,
             history: Tuple[aiohttp.ClientResponse, ...],
-            status: Optional[int] = None,
+            status: int | None = None,
             reason: str = "",
-            headers: Optional[aiohttp.typedefs.LooseHeaders] = None,
-            body: any = None):
+            headers: aiohttp.typedefs.LooseHeaders | None = None,
+            body: Any = None):
         super().__init__(
             request_info,
             history,
