@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -22,12 +22,14 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import annotations
+
 import copy
 import os
 import yaml
 
 from moonship.core.error import ConfigException
-from typing import ItemsView, Iterator, KeysView, Union
+from typing import Any, ItemsView, Iterator, KeysView
 
 __all__ = [
     "Config",
@@ -35,7 +37,7 @@ __all__ = [
 ]
 
 
-def convert_config_value(value: any, parent_key: str, key: str) -> any:
+def convert_config_value(value: Any, parent_key: str, key: str) -> Any:
     if isinstance(value, dict):
         value = Config(value, f"{parent_key}.{key}" if parent_key is not None else key)
     elif isinstance(value, float):
@@ -58,7 +60,7 @@ class ConfigItemsView(ItemsView):
         else:
             return v is value or v == value
 
-    def __iter__(self) -> Iterator[tuple[str, Union["Config", any]]]:
+    def __iter__(self) -> Iterator[tuple[str, Config | Any]]:
         for key in self._mapping:
             value = convert_config_value(self._mapping[key], self.key, key)
             yield key, value
@@ -66,28 +68,28 @@ class ConfigItemsView(ItemsView):
 
 class Config:
 
-    def __init__(self, config_dict: dict[str, any] = None, key: str = None) -> None:
+    def __init__(self, config_dict: dict[str, Any] = None, key: str = None) -> None:
         if config_dict is None:
             config_dict = {}
         self._dict = config_dict
         self._key = key
 
     @property
-    def dict(self) -> dict[str, any]:
+    def dict(self) -> dict[str, Any]:
         return self._dict
 
     @property
     def key(self) -> str:
         return self._key
 
-    def __ior__(self, other: Union["Config", dict]) -> "Config":
+    def __ior__(self, other: Config | dict) -> Config:
         if isinstance(other, dict):
             self._dict |= other
         else:
             self._dict |= other._dict
         return self
 
-    def __iter__(self) -> Iterator[any]:
+    def __iter__(self) -> Iterator[Any]:
         return iter(self._dict)
 
     def __contains__(self, key) -> bool:
@@ -96,10 +98,10 @@ class Config:
     def keys(self) -> KeysView:
         return self._dict.keys()
 
-    def items(self) -> ItemsView[str, Union["Config", any]]:
+    def items(self) -> ItemsView[str, Config | Any]:
         return ConfigItemsView(self._dict, self._key)
 
-    def get(self, key: str, default: any = None) -> Union["Config", any]:
+    def get(self, key: str, default: Any = None) -> Config | Any:
         keys = key.split(".")
         value = self._dict
         for i in range(0, len(keys)):
@@ -108,7 +110,7 @@ class Config:
                 return default
         return convert_config_value(value, self._key, key)
 
-    def set(self, key: str, value: any) -> None:
+    def set(self, key: str, value: Any) -> None:
         keys = key.split(".")
         parent = self._dict
         for i in range(0, len(keys) - 1):
@@ -131,11 +133,11 @@ class Config:
         if isinstance(parent, dict):
             del parent[keys[-1]]
 
-    def copy(self) -> "Config":
+    def copy(self) -> Config:
         return Config(copy.deepcopy(self._dict), self._key)
 
     @staticmethod
-    def load_from_file(config_filename: str) -> "Config":
+    def load_from_file(config_filename: str) -> Config:
         config = {
             "moonship": {
             }

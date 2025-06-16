@@ -28,7 +28,7 @@ import logging
 from moonship.core import *
 from moonship.core.ipc import SharedCacheDataAccessor
 from datetime import datetime, timezone
-from typing import Union
+from typing import Any
 
 __all__ = [
     "Strategy",
@@ -113,7 +113,7 @@ class Strategy:
                 market.unsubscribe(self._algo)
             await self.update_shared_cache({"active": False})
 
-    async def update_shared_cache(self, data: dict[str, any]) -> None:
+    async def update_shared_cache(self, data: dict[str, Any]) -> None:
         if self._shared_cache is not None:
             data["update_time"] = datetime.now(timezone.utc).isoformat()
             try:
@@ -158,7 +158,7 @@ class TradingAlgo(MarketSubscriber):
 
     async def on_order_book_update(
             self,
-            event: Union[OrderBookInitEvent, OrderBookItemAddedEvent, OrderBookItemRemovedEvent]) -> None:
+            event: OrderBookInitEvent | OrderBookItemAddedEvent | OrderBookItemRemovedEvent) -> None:
         pass
 
     async def on_order_book_init(self, event: OrderBookInitEvent) -> None:

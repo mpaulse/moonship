@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -28,7 +28,7 @@ import asyncio
 
 from dataclasses import dataclass
 from moonship.core import *
-from typing import Optional, Union
+from typing import Any
 
 __all__ = [
     "AbstractWebClient",
@@ -56,11 +56,11 @@ class AbstractWebClient(MarketClient, abc.ABC):
             market_name: str,
             app_config: Config,
             session_params: WebClientSessionParameters,
-            stream_params: Union[WebClientStreamParameters, list[WebClientStreamParameters]] = None) -> None:
+            stream_params: WebClientStreamParameters | list[WebClientStreamParameters] | None = None) -> None:
         super().__init__(market_name, app_config)
         self.session_params = session_params
         self.stream_params = stream_params
-        self.http_session: Optional[aiohttp.ClientSession] = None
+        self.http_session: aiohttp.ClientSession | None = None
 
     async def connect(self) -> None:
         trace_config = aiohttp.TraceConfig()
@@ -79,7 +79,7 @@ class AbstractWebClient(MarketClient, abc.ABC):
             for stream_params in self.stream_params:
                 asyncio.create_task(self._process_data_stream(stream_params))
 
-    async def _log_http_activity(self, session: aiohttp.ClientSession, context, params: any) -> None:
+    async def _log_http_activity(self, session: aiohttp.ClientSession, context, params: Any) -> None:
         self.logger.debug(params)
 
     async def close(self) -> None:
@@ -115,7 +115,7 @@ class AbstractWebClient(MarketClient, abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_data_stream_msg(self, msg: Any, websocket: aiohttp.ClientWebSocketResponse) -> None:
         pass
 
     async def handle_error_response(self, response: aiohttp.ClientResponse) -> None:

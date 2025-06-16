@@ -1,4 +1,4 @@
-#  Copyright (c) 2023, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -32,7 +32,7 @@ import redis.asyncio as aioredis
 
 from moonship.core import *
 from moonship.core.ipc import *
-from typing import Awaitable, Callable, Optional, Union
+from typing import Awaitable, Callable
 
 __all__ = [
     "RedisMessageBus",
@@ -40,7 +40,7 @@ __all__ = [
     "RedisSharedCache"
 ]
 
-redis: Optional[aioredis.Redis] = None
+redis: aioredis.Redis | None = None
 redis_ref_count = 0
 
 logger = logging.getLogger(__name__)
@@ -87,23 +87,23 @@ class RedisSharedCacheBulkOp(SharedCacheBulkOp):
     def __init__(self, pipeline: aioredis.client.Pipeline):
         self.pipeline = pipeline
 
-    def list_push_head(self, key: str, element: str) -> "SharedCacheBulkOp":
+    def list_push_head(self, key: str, element: str) -> SharedCacheBulkOp:
         self.pipeline.lpush(key, element)
         return self
 
-    def list_push_tail(self, key: str, element: str) -> "SharedCacheBulkOp":
+    def list_push_tail(self, key: str, element: str) -> SharedCacheBulkOp:
         self.pipeline.rpush(key, element)
         return self
 
-    def list_pop_head(self, key: str) -> "SharedCacheBulkOp":
+    def list_pop_head(self, key: str) -> SharedCacheBulkOp:
         self.pipeline.lpop(key)
         return self
 
-    def list_pop_tail(self, key: str) -> "SharedCacheBulkOp":
+    def list_pop_tail(self, key: str) -> SharedCacheBulkOp:
         self.pipeline.rpop(key)
         return self
 
-    def list_remove(self, key: str, element: str, count: int = None) -> "SharedCacheBulkOp":
+    def list_remove(self, key: str, element: str, count: int = None) -> SharedCacheBulkOp:
         self.pipeline.lrem(key, 0 if count is None else count, element)
         return self
 
@@ -216,8 +216,8 @@ class RedisMessageBus(MessageBus):
     def __init__(self, config: Config) -> None:
         super().__init__(config)
         self._channel_handlers: dict[str, list[Callable[[dict, str], Awaitable[None]]]] = {}
-        self._pubsub: Optional[aioredis.client.PubSub] = None
-        self._listen_task: Optional[asyncio.Task] = None
+        self._pubsub: aioredis.client.PubSub | None = None
+        self._listen_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         await init_redis(self.config)
@@ -349,6 +349,6 @@ class RedisSessionStore(aiohttp_session.AbstractStorage):
                 b.expire(key, self.idle_session_expiry_msec)
             await b.execute()
 
-    def _key(self, session: Union[str, aiohttp_session.Session]) -> str:
+    def _key(self, session: str | aiohttp_session.Session) -> str:
         session_id = session if isinstance(session, str) else session.identity
         return f"moonship:session:{session_id}"

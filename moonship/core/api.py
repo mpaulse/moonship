@@ -1,4 +1,4 @@
-#  Copyright (c) 2024, Marlon Paulse
+#  Copyright (c) 2025, Marlon Paulse
 #  All rights reserved.
 #
 #  Redistribution and use in source and binary forms, with or without
@@ -36,7 +36,7 @@ from moonship.core import *
 from moonship.core.ipc import *
 from moonship.core.redis import *
 from moonship.core.service import *
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +63,8 @@ class APIService(Service):
         if not isinstance(self.access_log_format, str):
             self.access_log_format = '%a %t "%r" %s %b "%{Referer}i" "%{User-Agent}i'
         self.password = password.encode("utf-8")
-        self.web_app_runner: Optional[aiohttp.web.AppRunner] = None
-        self.session_store: Optional[RedisSessionStore] = None
+        self.web_app_runner: aiohttp.web.AppRunner | None = None
+        self.session_store: RedisSessionStore | None = None
         self.shared_cache = SharedCacheDataAccessor(RedisSharedCache(config))
         self.message_bus = RedisMessageBus(config)
 
@@ -170,7 +170,7 @@ class APIService(Service):
     async def stop_strategy(self, req: Request) -> StreamResponse:
         return await self.invoke_strategy_command("stop", req)
 
-    async def invoke_strategy_command(self, command: str, req: Request, data: dict[str, any] = None) -> StreamResponse:
+    async def invoke_strategy_command(self, command: str, req: Request, data: dict[str, Any] = None) -> StreamResponse:
         if data is None:
             data = {}
         return self.handle_msg_bus_response(
@@ -183,7 +183,7 @@ class APIService(Service):
                 "moonship:message:request",
                 "moonship:message:response"))
 
-    def handle_msg_bus_response(self, rsp: dict[str, any]) -> StreamResponse:
+    def handle_msg_bus_response(self, rsp: dict[str, Any]) -> StreamResponse:
         result = rsp.get("result")
         if result is not None:
             match result:
@@ -261,7 +261,7 @@ class APIService(Service):
             raise ConfigException(f"Invalid API port configuration: {port}")
         return port
 
-    def get_ssl_context(self, config: Config) -> Optional[ssl.SSLContext]:
+    def get_ssl_context(self, config: Config) -> ssl.SSLContext | None:
         ssl_context = None
         ssl_cert = config.get("moonship.api.ssl_cert")
         ssl_key = config.get("moonship.api.ssl_key")

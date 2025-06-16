@@ -32,7 +32,7 @@ import urllib.parse
 from datetime import timezone
 from moonship.core import *
 from moonship.client.web import *
-from typing import Callable, Union
+from typing import Any, Callable
 
 API_BASE_URL = "https://api.binance.com/api/v3"
 STREAM_BASE_URL = "wss://stream.binance.com:9443/stream"
@@ -152,7 +152,7 @@ class BinanceClient(AbstractWebClient):
             raise MarketException(
                 f"Could not retrieve trades for {self.market.symbol}", self.market.name) from e
 
-    async def _get_trades(self, url: str, params: dict[str, any]) -> list[Trade]:
+    async def _get_trades(self, url: str, params: dict[str, Any]) -> list[Trade]:
         params["symbol"] = self.market.symbol
         async with self.request_weight_limiter:
             async with self.http_session.get(url, params=params) as rsp:
@@ -238,7 +238,7 @@ class BinanceClient(AbstractWebClient):
         except Exception as e:
             raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
 
-    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+    async def place_order(self, order: MarketOrder | LimitOrder) -> str:
         request = {
             "symbol": self.market.symbol,
             "side": order.action.name,
@@ -371,7 +371,7 @@ class BinanceClient(AbstractWebClient):
         quantity = to_amount(order_book_entry[1])
         return LimitOrder(id=f"{action.name}@{price}", action=action, price=to_amount(price), quantity=quantity)
 
-    async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_data_stream_msg(self, msg: Any, websocket: aiohttp.ClientWebSocketResponse) -> None:
         if isinstance(msg, dict):
             data = msg.get("data")
             if isinstance(data, dict):
