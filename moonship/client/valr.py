@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from datetime import timezone
 from moonship.core import *
 from moonship.client.web import *
-from typing import Callable, Optional, Union
+from typing import Any, Callable
 
 API_BASE_URL = "https://api.valr.com"
 API_VERSION_1 = "v1"
@@ -181,7 +181,7 @@ class ValrClient(AbstractWebClient):
             raise MarketException(
                 f"Could not retrieve trades for {self.market.symbol}", self.market.name) from e
 
-    async def _get_trades(self, params: dict[str, any]) -> list[Trade]:
+    async def _get_trades(self, params: dict[str, Any]) -> list[Trade]:
         path = f"/{API_VERSION_1}/marketdata/{self.market.symbol}/tradehistory?limit={GET_TRADES_MAX_LIMIT}"
         for k, v in params.items():
             path += f"&{k}={v}"
@@ -195,14 +195,15 @@ class ValrClient(AbstractWebClient):
                 trades_data = await rsp.json()
                 if isinstance(trades_data, list):
                     for data in trades_data:
-                        trades.append(
-                            Trade(
-                                id=data.get("id"),
-                                timestamp=self._to_timestamp(data.get("tradedAt")),
-                                symbol=data.get("currencyPair"),
-                                price=to_amount(data.get("price")),
-                                quantity=to_amount(data.get("quantity")),
-                                taker_action=OrderAction.BUY if data.get("takerSide") == "buy" else OrderAction.SELL))
+                        if isinstance(data, dict):
+                            trades.append(
+                                Trade(
+                                    id=data.get("id"),
+                                    timestamp=self._to_timestamp(data.get("tradedAt")),
+                                    symbol=data.get("currencyPair"),
+                                    price=to_amount(data.get("price")),
+                                    quantity=to_amount(data.get("quantity")),
+                                    taker_action=OrderAction.BUY if data.get("takerSide") == "buy" else OrderAction.SELL))
         return trades
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
@@ -227,24 +228,25 @@ class ValrClient(AbstractWebClient):
                     candle_data = await rsp.json()
                     if isinstance(candle_data, list):
                         for data in candle_data:
-                            candle_start = self._to_timestamp(data.get("startTime"))
-                            candles.append(
-                                Candle(
-                                    symbol=self.market.symbol,
-                                    start_time=candle_start,
-                                    end_time=candle_start
-                                    + datetime.timedelta(seconds=period.value)
-                                    - datetime.timedelta(milliseconds=1),
-                                    period=period,
-                                    open=to_amount(data.get("open")),
-                                    close=to_amount(data.get("close")),
-                                    high=to_amount(data.get("high")),
-                                    low=to_amount(data.get("low"))))
+                            if isinstance(data, dict):
+                                candle_start = self._to_timestamp(data.get("startTime"))
+                                candles.append(
+                                    Candle(
+                                        symbol=self.market.symbol,
+                                        start_time=candle_start,
+                                        end_time=candle_start
+                                        + datetime.timedelta(seconds=period.value)
+                                        - datetime.timedelta(milliseconds=1),
+                                        period=period,
+                                        open=to_amount(data.get("open")),
+                                        close=to_amount(data.get("close")),
+                                        high=to_amount(data.get("high")),
+                                        low=to_amount(data.get("low"))))
             return list(reversed(candles))
         except Exception as e:
             raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
 
-    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+    async def place_order(self, order: MarketOrder | LimitOrder) -> str:
         request = {
             "pair": self.market.symbol,
             "side": order.action.name
@@ -295,41 +297,54 @@ class ValrClient(AbstractWebClient):
                         f"{API_BASE_URL}{path}",
                         headers=self._get_auth_headers("GET", path)) as rsp:
                     await self.handle_error_response(rsp)
-                    order_data = await rsp.json()
-
-                    quantity = to_amount(order_data.get("originalQuantity"))
-                    quantity_filled = quantity - to_amount(order_data.get("remainingQuantity"))
-
-                    order_details = ValrFullOrderDetails(
-                        id=order_id,
-                        symbol=order_data.get("currencyPair"),
-                        action=self._to_order_action(order_data.get("orderSide")),
-                        quantity=quantity,
-                        quantity_filled=quantity_filled,
-                        limit_price=to_amount(order_data.get("originalPrice")),
-                        status=self._to_order_status(order_data),
-                        failed_reason=order_data.get("failedReason"),
-                        creation_timestamp=self._to_timestamp(order_data.get("orderCreatedAt")))
-                    try:
-                        order_details.time_in_force = TimeInForce(order_data.get("timeInForce"))
-                    except ValueError:
-                        pass
-
-                    # Only in history summary
-                    price = to_amount(order_data.get("averagePrice"))
-                    if price > 0:
-                        order_details.quote_quantity_filled = quantity_filled * price
-                    fee = to_amount(order_data.get("totalFee"))
-                    fee_asset = order_data.get("feeCurrency")
-                    if fee > 0 and fee_asset is not None:
-                        if fee_asset == self.market.base_asset:
-                            order_details.quantity_filled_fee = fee
-                        else:
-                            order_details.quote_quantity_filled_fee = fee
-
-                    return order_details
+                    return self._get_order_details(await rsp.json())
         except Exception as e:
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
+
+    def _get_order_details(self, order_data: dict) -> ValrFullOrderDetails:
+        quantity = to_amount(order_data.get("originalQuantity"))
+        quantity_filled = quantity - to_amount(order_data.get("remainingQuantity"))
+
+        side = order_data.get("orderSide")
+        if side is None:
+            side = order_data.get("side")
+
+        price = order_data.get("originalPrice")
+        if price is None:
+            price = order_data.get("price")
+
+        created_at = order_data.get("orderCreatedAt")
+        if created_at is None:
+            created_at = order_data.get("createdAt")
+
+        order_details = ValrFullOrderDetails(
+            id=order_data.get("orderId"),
+            symbol=order_data.get("currencyPair"),
+            action=self._to_order_action(side),
+            quantity=quantity,
+            quantity_filled=quantity_filled,
+            limit_price=to_amount(price),
+            status=self._to_order_status(order_data),
+            failed_reason=order_data.get("failedReason"),
+            creation_timestamp=self._to_timestamp(created_at))
+        try:
+            order_details.time_in_force = TimeInForce(order_data.get("timeInForce"))
+        except ValueError:
+            pass
+
+        # Only in history summary
+        price = to_amount(order_data.get("averagePrice"))
+        if price > 0:
+            order_details.quote_quantity_filled = quantity_filled * price
+        fee = to_amount(order_data.get("totalFee"))
+        fee_asset = order_data.get("feeCurrency")
+        if fee > 0 and fee_asset is not None:
+            if fee_asset == self.market.base_asset:
+                order_details.quantity_filled_fee = fee
+            else:
+                order_details.quote_quantity_filled_fee = fee
+
+        return order_details
 
     async def cancel_order(self, order_id: str) -> bool:
         request = {
@@ -355,6 +370,59 @@ class ValrClient(AbstractWebClient):
                     and e.body.get("message") == "Could not find the order to cancel":
                 return False
             raise MarketException("Failed to cancel order", self.market.name) from e
+
+    async def get_open_orders(self) -> list[ValrFullOrderDetails]:
+        orders: list[ValrFullOrderDetails] = []
+        try:
+            async with self.limiter:
+                path = f"/{API_VERSION_1}/orders/open"
+                async with self.http_session.get(
+                        f"{API_BASE_URL}{path}",
+                        headers=self._get_auth_headers("GET", path)) as rsp:
+                    await self.handle_error_response(rsp)
+                    orders_data = await rsp.json()
+                    if isinstance(orders_data, list):
+                        for data in orders_data:
+                            if isinstance(data, dict) and data.get("currencyPair") == self.market.symbol:
+                                orders.append(self._get_order_details(data))
+        except Exception as e:
+            raise MarketException("Could not retrieve open orders", self.market.name) from e
+        return orders
+
+    async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
+        base_asset_balance: AssetBalance | None = None
+        quote_asset_balance: AssetBalance | None = None
+        try:
+            async with self.limiter:
+                path = f"/{API_VERSION_1}/account/balances?excludeZeroBalances=false"
+                async with self.http_session.get(
+                        f"{API_BASE_URL}{path}",
+                        headers=self._get_auth_headers("GET", path)) as rsp:
+                    await self.handle_error_response(rsp)
+                    balance_list = await rsp.json()
+                    if isinstance(balance_list, list):
+                        for data in balance_list:
+                            if isinstance(data, dict):
+                                asset = data.get("currency")
+                                if asset == self.market.base_asset:
+                                    base_asset_balance = \
+                                        AssetBalance(
+                                            asset=asset,
+                                            total=to_amount(data.get("total")),
+                                            available=to_amount(data.get("available")))
+                                elif asset == self.market.quote_asset:
+                                    quote_asset_balance = \
+                                        AssetBalance(
+                                            asset=asset,
+                                            total=to_amount(data.get("total")),
+                                            available=to_amount(data.get("available")))
+        except Exception as e:
+            raise MarketException("Could not retrieve asset balances", self.market.name) from e
+        if base_asset_balance is None:
+            raise MarketException(f"{self.market.base_asset} balance not returned by exchange", self.market.name)
+        if quote_asset_balance is None:
+            raise MarketException(f"{self.market.quote_asset} balance not returned by exchange", self.market.name)
+        return base_asset_balance, quote_asset_balance
 
     def _get_auth_headers(self, http_method: str, request_path: str, request_body: str = None) -> dict[str, str]:
         timestamp = str(utc_timestamp_now_msec())
@@ -402,7 +470,7 @@ class ValrClient(AbstractWebClient):
             })
             await asyncio.sleep(30)
 
-    async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_data_stream_msg(self, msg: Any, websocket: aiohttp.ClientWebSocketResponse) -> None:
         if isinstance(msg, dict):
             event = msg.get("type")
             data = msg.get("data")
@@ -412,7 +480,7 @@ class ValrClient(AbstractWebClient):
                 elif event == "NEW_TRADE":
                     self._on_trade_stream_event(data)
 
-    def _on_order_book_stream_event(self, data: dict[str, any]) -> None:
+    def _on_order_book_stream_event(self, data: dict[str, Any]) -> None:
         bids = self._get_orders_from_stream(OrderAction.BUY, data.get("Bids"))
         asks = self._get_orders_from_stream(OrderAction.SELL, data.get("Asks"))
         if len(self.market.bids) == 0 and len(self.market.asks) == 0:
@@ -453,7 +521,7 @@ class ValrClient(AbstractWebClient):
                     order=order))
 
     def _get_orders_from_stream(
-            self, action: OrderAction, order_book_entries: list[dict[str, any]]
+            self, action: OrderAction, order_book_entries: list[dict[str, Any]]
     ) -> dict[Amount, LimitOrder]:
         orders: dict[Amount, LimitOrder] = {}
         if isinstance(order_book_entries, list):
@@ -473,7 +541,7 @@ class ValrClient(AbstractWebClient):
         # so create mock orders with the order ID = action@price.
         return f"{action.name}@{price}"
 
-    def _on_trade_stream_event(self, data: dict[str, any]) -> None:
+    def _on_trade_stream_event(self, data: dict[str, Any]) -> None:
         timestamp = self._to_timestamp(data.get("tradedAt"))
         self.market.raise_event(
             TradeEvent(
@@ -486,7 +554,7 @@ class ValrClient(AbstractWebClient):
                     price=to_amount(data.get("price")),
                     taker_action=self._to_order_action(data.get("takerSide")))))
 
-    def _to_timestamp(self, s: Optional[str]) -> Timestamp:
+    def _to_timestamp(self, s: str | None) -> Timestamp:
         if s is not None:
             if s[-1] == "Z":
                 s = s[:-1] + "+00:00"
@@ -496,8 +564,10 @@ class ValrClient(AbstractWebClient):
     def _to_order_action(self, s: str) -> OrderAction:
         return OrderAction.BUY if s.upper() == "BUY" else OrderAction.SELL
 
-    def _to_order_status(self, order_data: dict[str, any]) -> OrderStatus:
+    def _to_order_status(self, order_data: dict[str, Any]) -> OrderStatus:
         status = order_data.get("orderStatusType")
+        if status is None:
+            status = order_data.get("status")
         quantity = to_amount(order_data.get("originalQuantity"))
         rem_quantity = to_amount(order_data.get("remainingQuantity"))
         if "Failed" in status:

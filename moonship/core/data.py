@@ -31,6 +31,7 @@ from decimal import Decimal as Amount
 from enum import Enum
 
 __all__ = [
+    "AssetBalance",
     "Amount",
     "Candle",
     "CandlePeriod",
@@ -186,6 +187,17 @@ class Candle:
     close: Amount
     volume: Amount | None = None
     buy_volume: Amount | None = None
+
+
+@dataclass
+class AssetBalance:
+    asset: str
+    total: Amount
+    available: Amount
+
+    @property
+    def reserved(self) -> Amount:
+        return self.total - self.available
 
 
 def to_amount(s: str) -> Amount:

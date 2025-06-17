@@ -22,6 +22,8 @@
 #  OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from __future__ import annotations
+
 import abc
 import asyncio
 import inspect
@@ -31,7 +33,7 @@ import sortedcontainers
 from dataclasses import dataclass, field
 from datetime import timezone, timedelta
 from moonship.core import *
-from typing import Callable, Iterator, Mapping, Optional, Union
+from typing import Any, Callable, Iterator, Mapping
 
 __all__ = [
     "CandleEvent",
@@ -128,10 +130,10 @@ class MarketSubscriber:
 class MarketClient(abc.ABC):
 
     def __init__(self, market_name: str, app_config: Config) -> None:
-        self.market: Optional["Market"] = None
-        self.logger: Optional[logging.Logger] = None
+        self.market: Market | None = None
+        self.logger: logging.Logger | None = None
 
-    def _set_market(self, market: "Market") -> None:
+    def _set_market(self, market: Market) -> None:
         self.market = market
         self.logger = self.market.logger.getChild("client")
 
@@ -164,7 +166,7 @@ class MarketClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+    async def place_order(self, order: MarketOrder | LimitOrder) -> str:
         pass
 
     @abc.abstractmethod
@@ -173,6 +175,14 @@ class MarketClient(abc.ABC):
 
     @abc.abstractmethod
     async def cancel_order(self, order_id: str) -> bool:
+        pass
+
+    @abc.abstractmethod
+    async def get_open_orders(self) -> list[FullOrderDetails]:
+        pass
+
+    @abc.abstractmethod
+    async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
         pass
 
 
@@ -214,7 +224,7 @@ class OrderBook:
             entry._orders[order.id] = order
         self.order_entry_index[order.id] = entry
 
-    def remove(self, order_id: str, quantity: Optional[Amount] = None) -> None:
+    def remove(self, order_id: str, quantity: Amount | None = None) -> None:
         entry = self.order_entry_index.get(order_id)
         if entry is not None:
             order = entry._orders.get(order_id)
@@ -266,7 +276,7 @@ class OrderBookEntriesView(Mapping):
 
 class Market:
 
-    def __init__(self, name: str, symbol: str, client: MarketClient, **kwargs: dict[str, any]) -> None:
+    def __init__(self, name: str, symbol: str, client: MarketClient, **kwargs: dict[str, Any]) -> None:
         self._name = name
         self._symbol = symbol
         self._client = client
@@ -415,7 +425,7 @@ class Market:
             period = self._default_candle_period
         return await self._client.get_candles(period, from_time)
 
-    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+    async def place_order(self, order: MarketOrder | LimitOrder) -> str:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         if isinstance(order, LimitOrder) and (order.post_only or order.time_in_force is None):
@@ -480,7 +490,7 @@ class Market:
             self.raise_event(OrderStatusUpdateEvent(order=order))
         return order.status
 
-    async def _handle_pending_order_update(self, order_id: str) -> Optional[FullOrderDetails]:
+    async def _handle_pending_order_update(self, order_id: str) -> FullOrderDetails | None:
         pending_order_details = self._pending_orders.get(order_id)
         if pending_order_details is not None:
             updated_order_details = await self.get_order(order_id)
@@ -511,6 +521,19 @@ class Market:
                 del self._pending_orders[order.id]
             except KeyError:
                 pass
+
+    async def get_open_orders(self) -> list[FullOrderDetails]:
+        if self._status == MarketStatus.CLOSED:
+            raise MarketException(f"Market closed", self.name)
+        return await self._client.get_open_orders()
+
+    async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
+        """Gets a tuple consisting of the base asset and quote asset balance
+        (in that order) for the account associated with this market.
+        """
+        if self._status == MarketStatus.CLOSED:
+            raise MarketException(f"Market closed", self.name)
+        return await self._client.get_asset_balances()
 
     def subscribe(self, subscriber) -> None:
         self._subscribers.append(subscriber)

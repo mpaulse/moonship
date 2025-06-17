@@ -161,34 +161,35 @@ class BinanceClient(AbstractWebClient):
                 trades_data = await rsp.json()
                 if isinstance(trades_data, list):
                     for data in trades_data:
-                        id = data.get("id")
-                        if id is None:
-                            id = data.get("a") # Aggregate trade ID
+                        if isinstance(data, dict):
+                            id = data.get("id")
+                            if id is None:
+                                id = data.get("a") # Aggregate trade ID
 
-                        timestamp = data.get("time")
-                        if timestamp is None:
-                            timestamp = data.get("T")
+                            timestamp = data.get("time")
+                            if timestamp is None:
+                                timestamp = data.get("T")
 
-                        price = data.get("price")
-                        if price is None:
-                            price = data.get("p")
+                            price = data.get("price")
+                            if price is None:
+                                price = data.get("p")
 
-                        quantity = data.get("qty")
-                        if quantity is None:
-                            quantity = data.get("q")
+                            quantity = data.get("qty")
+                            if quantity is None:
+                                quantity = data.get("q")
 
-                        is_buyer_maker = data.get("isBuyerMaker")
-                        if is_buyer_maker is None:
-                            is_buyer_maker = data.get("m")
+                            is_buyer_maker = data.get("isBuyerMaker")
+                            if is_buyer_maker is None:
+                                is_buyer_maker = data.get("m")
 
-                        trades.append(
-                            Trade(
-                                id=str(id),
-                                timestamp=to_utc_timestamp(timestamp),
-                                symbol=self.market.symbol,
-                                price=to_amount(price),
-                                quantity=to_amount(quantity),
-                                taker_action=OrderAction.SELL if is_buyer_maker is True else OrderAction.BUY))
+                            trades.append(
+                                Trade(
+                                    id=str(id),
+                                    timestamp=to_utc_timestamp(timestamp),
+                                    symbol=self.market.symbol,
+                                    price=to_amount(price),
+                                    quantity=to_amount(quantity),
+                                    taker_action=OrderAction.SELL if is_buyer_maker is True else OrderAction.BUY))
                 return trades
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
@@ -221,19 +222,20 @@ class BinanceClient(AbstractWebClient):
                     candle_data = await rsp.json()
                     if isinstance(candle_data, list):
                         for data in candle_data:
-                            if len(data) >= 7:
-                                candles.append(
-                                    Candle(
-                                        symbol=self.market.symbol,
-                                        period=period,
-                                        start_time=to_utc_timestamp(data[0]),
-                                        open=to_amount(data[1]),
-                                        high=to_amount(data[2]),
-                                        low=to_amount(data[3]),
-                                        close=to_amount(data[4]),
-                                        volume=to_amount(data[5]),
-                                        end_time=to_utc_timestamp(data[6]),
-                                        buy_volume=to_amount(data[9])))
+                            if isinstance(data, list):
+                                if len(data) >= 7:
+                                    candles.append(
+                                        Candle(
+                                            symbol=self.market.symbol,
+                                            period=period,
+                                            start_time=to_utc_timestamp(data[0]),
+                                            open=to_amount(data[1]),
+                                            high=to_amount(data[2]),
+                                            low=to_amount(data[3]),
+                                            close=to_amount(data[4]),
+                                            volume=to_amount(data[5]),
+                                            end_time=to_utc_timestamp(data[6]),
+                                            buy_volume=to_amount(data[9])))
                     return candles
         except Exception as e:
             raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
@@ -284,27 +286,7 @@ class BinanceClient(AbstractWebClient):
             async with self.request_weight_limiter:
                 async with self.http_session.get(f"{API_BASE_URL}/order", params=params) as rsp:
                     await self.handle_error_response(rsp)
-                    order_data = await rsp.json()
-                    status = order_data.get("status")
-                    order_details = FullOrderDetails(
-                        id=order_id,
-                        symbol=order_data.get("symbol"),
-                        action=OrderAction[order_data.get("side")],
-                        quantity=to_amount(order_data.get("origQty")),
-                        quote_quantity=to_amount(order_data.get("origQuoteOrderQty")),
-                        quantity_filled=to_amount(order_data.get("executedQty")),
-                        quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
-                        limit_price=to_amount(order_data.get("price")),
-                        status=OrderStatus.PENDING if status == "NEW"
-                        else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
-                        else OrderStatus.CANCELLED if status == "CANCELED"
-                        else OrderStatus[status],
-                        creation_timestamp=to_utc_timestamp(order_data.get("time")))
-                    try:
-                        order_details.time_in_force = TimeInForce(order_data.get("timeInForce"))
-                    except ValueError:
-                        pass
-                    return order_details
+                    return self._get_order_details(await rsp.json())
         except Exception as e:
             error_code = self._get_error_code(e)
             if error_code == MarketErrorCode.NO_SUCH_ORDER:
@@ -316,6 +298,28 @@ class BinanceClient(AbstractWebClient):
                 f"Could not retrieve details of order {order_id}",
                 self.market.name,
                 error_code) from e
+
+    def _get_order_details(self, order_data) -> FullOrderDetails:
+        status = order_data.get("status")
+        order_details = FullOrderDetails(
+            id=order_data.get("orderId"),
+            symbol=order_data.get("symbol"),
+            action=OrderAction[order_data.get("side")],
+            quantity=to_amount(order_data.get("origQty")),
+            quote_quantity=to_amount(order_data.get("origQuoteOrderQty")),
+            quantity_filled=to_amount(order_data.get("executedQty")),
+            quote_quantity_filled=to_amount(order_data.get("cummulativeQuoteQty")),
+            limit_price=to_amount(order_data.get("price")),
+            status=OrderStatus.PENDING if status == "NEW"
+            else OrderStatus.CANCELLATION_PENDING if status == "PENDING_CANCEL"
+            else OrderStatus.CANCELLED if status == "CANCELED"
+            else OrderStatus[status],
+            creation_timestamp=to_utc_timestamp(order_data.get("time")))
+        try:
+            order_details.time_in_force = TimeInForce(order_data.get("timeInForce"))
+        except ValueError:
+            pass
+        return order_details
 
     async def cancel_order(self, order_id: str) -> bool:
         request = self._url_encode_and_sign({
@@ -338,6 +342,64 @@ class BinanceClient(AbstractWebClient):
             if error_code == MarketErrorCode.NO_SUCH_ORDER:
                 return True
             raise MarketException("Failed to cancel order", self.market.name, error_code) from e
+
+    async def get_open_orders(self) -> list[FullOrderDetails]:
+        params = self._url_encode_and_sign({
+            "symbol": self.market.symbol,
+            "timestamp": utc_timestamp_now_msec()
+        })
+        orders: list[FullOrderDetails] = []
+        try:
+            async with self.request_weight_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/openOrders", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    order_list = await rsp.json()
+                    if isinstance(order_list, list):
+                        for order_data in order_list:
+                            if isinstance(order_data, dict):
+                                orders.append(self._get_order_details(order_data))
+        except Exception as e:
+            raise MarketException("Could not retrieve open orders", self.market.name) from e
+        return orders
+
+    async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
+        base_asset_balance: AssetBalance | None = None
+        quote_asset_balance: AssetBalance | None = None
+        params = self._url_encode_and_sign({
+            "omitZeroBalances": "false",
+            "timestamp": utc_timestamp_now_msec()
+        })
+        try:
+            async with self.request_weight_limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/account", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    account_data = await rsp.json()
+                    if isinstance(account_data, dict):
+                        balance_list = account_data.get("balances")
+                        if isinstance(balance_list, list):
+                            for data in balance_list:
+                                if isinstance(data, dict):
+                                    asset = data.get("asset")
+                                    available = to_amount(data.get("available"))
+                                    if asset == self.market.base_asset:
+                                        base_asset_balance = \
+                                            AssetBalance(
+                                                asset=asset,
+                                                total=available + to_amount(data.get("locked")),
+                                                available=available)
+                                    elif asset == self.market.quote_asset:
+                                        quote_asset_balance = \
+                                            AssetBalance(
+                                                asset=asset,
+                                                total=available + to_amount(data.get("locked")),
+                                                available=available)
+        except Exception as e:
+            raise MarketException("Could not retrieve asset balances", self.market.name) from e
+        if base_asset_balance is None:
+            raise MarketException(f"{self.market.base_asset} balance not returned by exchange", self.market.name)
+        if quote_asset_balance is None:
+            raise MarketException(f"{self.market.quote_asset} balance not returned by exchange", self.market.name)
+        return base_asset_balance, quote_asset_balance
 
     def _url_encode_and_sign(self, data: dict) -> str:
         params = urllib.parse.urlencode(data, encoding="utf-8")
