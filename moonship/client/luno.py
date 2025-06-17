@@ -29,10 +29,11 @@ import datetime
 
 from moonship.core import *
 from moonship.client.web import *
-from typing import Callable, Union
+from typing import Any, Callable
 
 API_BASE_URL = "https://api.luno.com/api/1"
 EXCHANGE_API_BASE_URL = "https://api.luno.com/api/exchange/1"
+EXCHANGE_API_V2_BASE_URL = "https://api.luno.com/api/exchange/2"
 STREAM_BASE_URL = "wss://ws.luno.com/api/1/stream"
 LUNO_MAX_DECIMALS = MAX_DECIMALS
 GET_TRADES_MAX_LIMIT = 100
@@ -137,17 +138,18 @@ class LunoClient(AbstractWebClient):
             async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
                 await self.handle_error_response(rsp)
                 trades: list[Trade] = []
-                trades_data = (await rsp.json())["trades"]
+                trades_data = (await rsp.json()).get("trades")
                 if isinstance(trades_data, list):
                     for data in trades_data:
-                        trades.append(
-                            Trade(
-                                id=str(data.get("sequence")),
-                                timestamp=to_utc_timestamp(data.get("timestamp")),
-                                symbol=self.market.symbol,
-                                price=to_amount(data.get("price")),
-                                quantity=to_amount(data.get("volume")),
-                                taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
+                        if isinstance(data, dict):
+                            trades.append(
+                                Trade(
+                                    id=str(data.get("sequence")),
+                                    timestamp=to_utc_timestamp(data.get("timestamp")),
+                                    symbol=self.market.symbol,
+                                    price=to_amount(data.get("price")),
+                                    quantity=to_amount(data.get("volume")),
+                                    taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
                 return trades
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
@@ -164,28 +166,29 @@ class LunoClient(AbstractWebClient):
                 async with self.http_session.get(f"{EXCHANGE_API_BASE_URL}/candles", params=params) as rsp:
                     await self.handle_error_response(rsp)
                     candles: list[Candle] = []
-                    candle_data = (await rsp.json())["candles"]
+                    candle_data = (await rsp.json()).get("candles")
                     if isinstance(candle_data, list):
                         for data in candle_data:
-                            candle_start = to_utc_timestamp(data.get("timestamp"))
-                            candles.append(
-                                Candle(
-                                    symbol=self.market.symbol,
-                                    start_time=candle_start,
-                                    end_time=candle_start
-                                    + datetime.timedelta(seconds=period.value)
-                                    - datetime.timedelta(milliseconds=1),
-                                    period=period,
-                                    open=to_amount(data.get("open")),
-                                    close=to_amount(data.get("close")),
-                                    high=to_amount(data.get("high")),
-                                    low=to_amount(data.get("low")),
-                                    volume=to_amount(data.get("volume"))))
+                            if isinstance(data, dict):
+                                candle_start = to_utc_timestamp(data.get("timestamp"))
+                                candles.append(
+                                    Candle(
+                                        symbol=self.market.symbol,
+                                        start_time=candle_start,
+                                        end_time=candle_start
+                                        + datetime.timedelta(seconds=period.value)
+                                        - datetime.timedelta(milliseconds=1),
+                                        period=period,
+                                        open=to_amount(data.get("open")),
+                                        close=to_amount(data.get("close")),
+                                        high=to_amount(data.get("high")),
+                                        low=to_amount(data.get("low")),
+                                        volume=to_amount(data.get("volume"))))
                     return candles
         except Exception as e:
             raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
 
-    async def place_order(self, order: Union[MarketOrder, LimitOrder]) -> str:
+    async def place_order(self, order: MarketOrder | LimitOrder) -> str:
         request = {
             "pair": self.market.symbol
         }
@@ -252,6 +255,71 @@ class LunoClient(AbstractWebClient):
         except Exception as e:
             raise MarketException("Failed to cancel order", self.market.name) from e
 
+    async def get_open_orders(self) -> list[FullOrderDetails]:
+        orders: list[FullOrderDetails] = []
+        params = {
+            "pair": self.market.symbol,
+            "closed": "false"
+        }
+        try:
+            async with self.limiter:
+                async with self.http_session.get(f"{EXCHANGE_API_V2_BASE_URL}/listorders", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    orders_data = (await rsp.json()).get("orders")
+                    if isinstance(orders_data, list):
+                        for order_data in orders_data:
+                            order_details = FullOrderDetails(
+                                id=order_data.get("order_id"),
+                                symbol=order_data.get("pair"),
+                                action=self._to_order_action(order_data.get("side")),
+                                quantity=to_amount(order_data.get("limit_volume")),
+                                quantity_filled=to_amount(order_data.get("base")),
+                                quantity_filled_fee=to_amount(order_data.get("fee_base")),
+                                quote_quantity_filled=to_amount(order_data.get("counter")),
+                                quote_quantity_filled_fee=to_amount(order_data.get("fee_counter")),
+                                limit_price=to_amount(order_data.get("limit_price")),
+                                status=self._to_order_status(order_data),
+                                creation_timestamp=to_utc_timestamp(order_data.get("creation_timestamp")))
+                            try:
+                                order_details.time_in_force = TimeInForce(order_data.get("time_in_force"))
+                            except ValueError:
+                                pass
+                            orders.append(order_details)
+        except Exception as e:
+            raise MarketException(f"Could not retrieve open orders", self.market.name) from e
+        return orders
+
+    async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
+        params = {
+            "assets": [self.market.base_asset, self.market.quote_asset],
+        }
+        base_asset_balance: AssetBalance | None = None
+        quote_asset_balance: AssetBalance | None = None
+        try:
+            async with self.limiter:
+                async with self.http_session.get(f"{API_BASE_URL}/balance", params=params) as rsp:
+                    await self.handle_error_response(rsp)
+                    balance_list = (await rsp.json()).get("balance")
+                    if isinstance(balance_list, list):
+                        for balance_data in balance_list:
+                            if isinstance(balance_data, dict):
+                                total = to_amount(balance_data.get("balance"))
+                                available = total \
+                                        - to_amount(balance_data.get("reserved"))  \
+                                        - to_amount(balance_data.get("unconfirmed"))
+                                balance = AssetBalance(asset=balance_data.get("asset"), available=available, total=total)
+                                if balance.asset == self.market.base_asset:
+                                    base_asset_balance = balance
+                                elif balance.asset == self.market.quote_asset:
+                                    quote_asset_balance = balance
+        except Exception as e:
+            raise MarketException("Could not retrieve asset balances", self.market.name) from e
+        if base_asset_balance is None:
+            raise MarketException(f"{self.market.base_asset} balance not returned by exchange", self.market.name)
+        if quote_asset_balance is None:
+            raise MarketException(f"{self.market.quote_asset} balance not returned by exchange", self.market.name)
+        return base_asset_balance, quote_asset_balance
+
     async def on_after_data_stream_connect(
             self,
             websocket: aiohttp.ClientWebSocketResponse,
@@ -261,7 +329,7 @@ class LunoClient(AbstractWebClient):
             "api_key_secret": self.session_params.auth.password
         })
 
-    async def on_data_stream_msg(self, msg: any, websocket: aiohttp.ClientWebSocketResponse) -> None:
+    async def on_data_stream_msg(self, msg: Any, websocket: aiohttp.ClientWebSocketResponse) -> None:
         if not isinstance(msg, dict):
             return
         elif self.data_stream_seq_num < 0:
@@ -349,9 +417,11 @@ class LunoClient(AbstractWebClient):
     def _to_order_action(self, s: str) -> OrderAction:
         return OrderAction.BUY if s == "BID" or s == "BUY" else OrderAction.SELL
 
-    def _to_order_status(self, order_data: dict[str, any]) -> OrderStatus:
+    def _to_order_status(self, order_data: dict[str, Any]) -> OrderStatus:
         exp_timestamp = order_data.get("expiration_timestamp")
         state = order_data.get("state")
+        if state is None:
+            state = order_data.get("status")
         quantity = to_amount(order_data.get("limit_volume"))
         quantity_filled = to_amount(order_data.get("base"))
         if state == "COMPLETE":

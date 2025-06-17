@@ -25,7 +25,7 @@
 import aiohttp.typedefs
 import enum
 
-from typing import Any, Tuple
+from typing import Any
 
 __all__ = [
     "ConfigException",
@@ -42,7 +42,7 @@ class HttpResponseException(aiohttp.ClientResponseError):
     def __init__(
             self,
             request_info: aiohttp.RequestInfo,
-            history: Tuple[aiohttp.ClientResponse, ...],
+            history: tuple[aiohttp.ClientResponse, ...],
             status: int | None = None,
             reason: str = "",
             headers: aiohttp.typedefs.LooseHeaders | None = None,
