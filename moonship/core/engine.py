@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -56,7 +56,8 @@ class MarketManager(MarketSubscriber):
             self._init_recent_trade_list(),
             self._init_recent_candles(),
             self._init_market_info())
-        asyncio.create_task(self._poll_candles())
+        if self.market._default_candle_period is not None:
+            asyncio.create_task(self._poll_candles())
 
     async def _init_current_price(self) -> None:
         ticker = await self.market.get_ticker()
@@ -69,14 +70,16 @@ class MarketManager(MarketSubscriber):
                 ticker=ticker))
 
     async def _init_recent_trade_list(self) -> None:
-        trades = await self.market.get_recent_trades()
-        for trade in trades:
-            self._add_trade(trade)
+        if self.max_recent_trade_list_size > 0:
+            trades = await self.market.get_recent_trades()
+            for trade in trades:
+                self._add_trade(trade)
 
     async def _init_recent_candles(self) -> None:
-        candles = await self.market.get_candles()
-        for candle in candles:
-            self._add_candle(candle)
+        if self.market._default_candle_period is not None:
+            candles = await self.market.get_candles()
+            for candle in candles:
+                self._add_candle(candle)
 
     async def _init_market_info(self) -> None:
         info = await self.market._client.get_market_info()

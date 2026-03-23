@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -281,10 +281,13 @@ class Market:
         self._client = client
 
         candle_period = kwargs.get("candle_period")
-        try:
-            self._default_candle_period = CandlePeriod(candle_period)
-        except ValueError:
-            raise ConfigException(f"Invalid candle period specified for {name} market: {candle_period}")
+        if candle_period != 0:
+            try:
+                self._default_candle_period = CandlePeriod(candle_period)
+            except ValueError:
+                raise ConfigException(f"Invalid candle period specified for {name} market: {candle_period}")
+        else:
+            self._default_candle_period = None
 
         self._base_asset = symbol[0:3] if len(symbol) == 6 else symbol
         self._base_asset_precision = 0
@@ -421,6 +424,8 @@ class Market:
         if self._status == MarketStatus.CLOSED:
             raise MarketException(f"Market closed", self.name)
         if period is None:
+            if self._default_candle_period is None:
+                raise MarketException(f"No candle period specified", self.name)
             period = self._default_candle_period
         return await self._client.get_candles(period, from_time)
 
