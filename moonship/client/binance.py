@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -299,6 +299,7 @@ class BinanceClient(AbstractWebClient):
                 error_code) from e
 
     def _get_order_details(self, order_data) -> FullOrderDetails:
+        # TODO: Get order fees via /myTrades endpoint
         status = order_data.get("status")
         order_details = FullOrderDetails(
             id=order_data.get("orderId"),
@@ -411,10 +412,6 @@ class BinanceClient(AbstractWebClient):
     async def on_before_data_stream_connect(self, params: WebClientStreamParameters) -> None:
         self.last_order_book_update_id = -1
         self.order_book_event_buf.clear()
-        async with self.http_session.post(f"{API_BASE_URL}/userDataStream") as rsp:
-            await self.handle_error_response(rsp)
-            listen_key = (await rsp.json()).get("listenKey")
-            params.url += f"/{listen_key}"
 
     def _get_orders_from_stream(
             self,
@@ -445,6 +442,8 @@ class BinanceClient(AbstractWebClient):
                     self._on_order_book_stream_event(data)
 
     def _on_order_update_stream_event(self, event: dict) -> None:
+        # TODO: userDataStream REST API endpoints have been discontinued since Feb 2026.
+        # Switch to the websocket API to receive user data stream events.
         if isinstance(event, dict):
             status = event.get("X")
             order_details = FullOrderDetails(
