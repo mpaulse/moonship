@@ -150,14 +150,15 @@ def launch():
         
             __  ___                       __    _     
            /  |/  /___  ____  ____  _____/ /_  (_)___ 
-          / /|_/ / __ \/ __ \/ __ \/ ___/ __ \/ / __ \\
+          / /|_/ / __ \\/ __ \\/ __ \\/ ___/ __ \\/ / __ \\
          / /  / / /_/ / /_/ / / / (__  ) / / / / /_/ /
-        /_/  /_/\____/\____/_/ /_/____/_/ /_/_/ .___/ 
+        /_/  /_/\\____/\\____/_/ /_/____/_/ /_/_/ .___/ 
                                              /_/      
         """)
     logger.info(f"Version {__version__}")
     services: list[Service] = []
-    event_loop = asyncio.get_event_loop()
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
     event_loop.set_exception_handler(lambda loop, context: handle_error(context))
     signal.signal(signal.SIGTERM, handle_signal)
     try:
