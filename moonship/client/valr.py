@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -389,6 +389,15 @@ class ValrClient(AbstractWebClient):
         return orders
 
     async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
+        base_asset_balance, quote_asset_balance = await self._get_account_asset_balances()
+        if base_asset_balance.total == 0:
+            base_asset_total = await self._get_open_futures_position_quantity()
+            if base_asset_total != 0:
+                base_asset_balance.total = base_asset_total
+                base_asset_balance.available = base_asset_total
+        return base_asset_balance, quote_asset_balance
+
+    async def _get_account_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
         base_asset_balance: AssetBalance | None = None
         quote_asset_balance: AssetBalance | None = None
         try:
@@ -422,6 +431,24 @@ class ValrClient(AbstractWebClient):
         if quote_asset_balance is None:
             raise MarketException(f"{self.market.quote_asset} balance not returned by exchange", self.market.name)
         return base_asset_balance, quote_asset_balance
+
+    async def _get_open_futures_position_quantity(self) -> Amount:
+        try:
+            async with self.limiter:
+                path = f"/{API_VERSION_1}/positions/open"
+                async with self.http_session.get(
+                        f"{API_BASE_URL}{path}",
+                        headers=self._get_auth_headers("GET", path)) as rsp:
+                    await self.handle_error_response(rsp)
+                    positions_list = await rsp.json()
+                    if isinstance(positions_list, list):
+                        for data in positions_list:
+                            if isinstance(data, dict) and data.get("pair") == self.market.symbol:
+                                quantity = to_amount(data.get("quantity"))
+                                return quantity if self._to_order_action(data.get("side")) == OrderAction.BUY else -quantity
+        except Exception as e:
+            raise MarketException("Could not retrieve open futures position", self.market.name) from e
+        return Amount(0)
 
     def _get_auth_headers(self, http_method: str, request_path: str, request_body: str = None) -> dict[str, str]:
         timestamp = str(utc_timestamp_now_msec())
