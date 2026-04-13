@@ -127,7 +127,8 @@ class MarketManager(MarketSubscriber):
     async def on_trade(self, event: TradeEvent) -> None:
         self.market._current_price = event.trade.price
         self.market._order_book.remove(event.maker_order_id, event.trade.quantity)
-        self._add_trade(event.trade)
+        if self.max_recent_trade_list_size > 0:
+            self._add_trade(event.trade)
         self.market.raise_event(
             TickerEvent(
                 timestamp=event.timestamp,
