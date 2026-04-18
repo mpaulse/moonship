@@ -213,8 +213,9 @@ class MarketManager(MarketSubscriber):
 
 class TradingEngine(Service):
 
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, event_loop: asyncio.AbstractEventLoop) -> None:
         self.config = config
+        self.event_loop = event_loop
         self.markets: dict[str, MarketManager] = {}
         self.strategies: dict[str, Strategy] = {}
         self.id = nanoid.generate(size=8)
@@ -279,7 +280,8 @@ class TradingEngine(Service):
             self.id,
             algo_class,
             markets,
-            self.shared_cache)
+            self.shared_cache,
+            self.event_loop)
         strategy.init_config(app_config)
         return strategy
 

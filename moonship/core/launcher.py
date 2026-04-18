@@ -167,7 +167,7 @@ def launch():
         if args.run_monitor_service:
             services.append(Monitor(config))
         if args.run_engine_service or len(services) == 0:
-            services.append(TradingEngine(config))
+            services.append(TradingEngine(config, event_loop))
         for service in services:
             event_loop.create_task(service.start())
         event_loop.run_forever()

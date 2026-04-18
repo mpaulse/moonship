@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -38,18 +38,21 @@ __all__ = [
 class Strategy:
 
     def __init__(
-            self,
-            name: str,
-            engine_name: str,
-            engine_id: str,
-            algo_class: type,
-            markets: dict[str, Market],
-            shared_cache: SharedCacheDataAccessor) -> None:
+        self,
+        name: str,
+        engine_name: str,
+        engine_id: str,
+        algo_class: type,
+        markets: dict[str, Market],
+        shared_cache: SharedCacheDataAccessor,
+        event_loop: asyncio.AbstractEventLoop
+    ) -> None:
         self._name = name
         self._engine_name = engine_name
         self._engine_id = engine_id
         self._markets = markets
         self._shared_cache = shared_cache
+        self._event_loop = event_loop
         self._logger = logging.getLogger(f"moonship.strategy.{name}")
         self._active = False
         self._auto_start = False
@@ -70,6 +73,10 @@ class Strategy:
     @property
     def shared_cache(self) -> SharedCacheDataAccessor:
         return self._shared_cache
+
+    @property
+    def event_loop(self) -> asyncio.AbstractEventLoop:
+        return self._event_loop
 
     @property
     def markets(self) -> dict[str, Market]:
