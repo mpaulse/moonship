@@ -25,9 +25,11 @@ from __future__ import annotations
 
 import abc
 import asyncio
+import copy
 import inspect
 import logging
 import sortedcontainers
+import threading
 
 from dataclasses import dataclass, field
 from datetime import timezone, timedelta
@@ -190,9 +192,11 @@ class OrderBookEntry:
     def __init__(self, order: LimitOrder) -> None:
         self._price = order.price
         self._orders = {order.id: order}
+        self._lock = threading.RLock()
 
     def __contains__(self, order_id: str):
-        return self._orders.__contains__(order_id)
+        with self._lock:
+            return self._orders.__contains__(order_id)
 
     @property
     def price(self) -> Amount:
@@ -200,27 +204,32 @@ class OrderBookEntry:
 
     @property
     def quantity(self) -> Amount:
-        quantity = Amount(0)
-        for order in self._orders.values():
-            quantity += order.quantity
-        return quantity
+        with self._lock:
+            quantity = Amount(0)
+            for order in self._orders.values():
+                quantity += order.quantity
+            return quantity
 
 
 class OrderBook:
 
     def __init__(self):
         self.bids = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
+        self.bids_lock = threading.RLock()
         self.asks = sortedcontainers.SortedDict[Amount, OrderBookEntry]()
+        self.asks_lock = threading.RLock()
         self.order_entry_index: dict[str, OrderBookEntry] = {}
 
     def add(self, order: LimitOrder) -> None:
-        entries = self._get_entries_list(order)
-        entry: OrderBookEntry = entries.get(order.price)
-        if entry is None:
-            entry = OrderBookEntry(order)
-            entries[order.price] = entry
-        else:
-            entry._orders[order.id] = order
+        entries, entries_lock = self._get_entries_list(order)
+        with entries_lock:
+            entry: OrderBookEntry = entries.get(order.price)
+            if entry is None:
+                entry = OrderBookEntry(order)
+                entries[order.price] = entry
+            else:
+                with entry._lock:
+                    entry._orders[order.id] = order
         self.order_entry_index[order.id] = entry
 
     def remove(self, order_id: str, quantity: Amount | None = None) -> None:
@@ -228,22 +237,26 @@ class OrderBook:
         if entry is not None:
             order = entry._orders.get(order_id)
             if order is not None:
-                if quantity is not None:
-                    order.quantity -= quantity
-                if quantity is None or order.quantity <= 0:
-                    del entry._orders[order_id]
-                if entry.quantity == 0:
-                    entries = self._get_entries_list(order)
-                    del entries[entry.price]
-                    del self.order_entry_index[order_id]
+                entries, entries_lock = self._get_entries_list(order)
+                with entries_lock:
+                    with entry._lock:
+                        if quantity is not None:
+                            order.quantity -= quantity
+                        if quantity is None or order.quantity <= 0:
+                            del entry._orders[order_id]
+                    if entry.quantity == 0:
+                        del entries[entry.price]
+                        del self.order_entry_index[order_id]
 
     def clear(self) -> None:
         self.order_entry_index.clear()
-        self.bids.clear()
-        self.asks.clear()
+        with self.bids_lock:
+            self.bids.clear()
+        with self.asks_lock:
+            self.asks.clear()
 
-    def _get_entries_list(self, order) -> sortedcontainers.SortedDict[Amount, OrderBookEntry]:
-        return self.bids if order.action == OrderAction.BUY else self.asks
+    def _get_entries_list(self, order) -> tuple[sortedcontainers.SortedDict[Amount, OrderBookEntry], threading.RLock]:
+        return (self.bids, self.bids_lock) if order.action == OrderAction.BUY else (self.asks, self.asks_lock)
 
 
 class OrderBookEntriesView(Mapping):
@@ -342,11 +355,13 @@ class Market:
 
     @property
     def bid_price(self) -> Amount:
-        return self._order_book.bids.peekitem(-1)[0] if len(self._order_book.bids) > 0 else Amount(0)
+        with self._order_book.bids_lock:
+            return self._order_book.bids.peekitem(-1)[0] if len(self._order_book.bids) > 0 else Amount(0)
 
     @property
     def ask_price(self) -> Amount:
-        return self._order_book.asks.peekitem(0)[0] if len(self._order_book.asks) > 0 else Amount(0)
+        with self._order_book.asks_lock:
+            return self._order_book.asks.peekitem(0)[0] if len(self._order_book.asks) > 0 else Amount(0)
 
     @property
     def spread(self) -> Amount:
@@ -354,11 +369,13 @@ class Market:
 
     @property
     def bids(self) -> OrderBookEntriesView:
-        return OrderBookEntriesView(self._order_book.bids)
+        with self._order_book.bids_lock:
+            return OrderBookEntriesView(copy.copy(self._order_book.bids))
 
     @property
     def asks(self) -> OrderBookEntriesView:
-        return OrderBookEntriesView(self._order_book.asks)
+        with self._order_book.asks_lock:
+            return OrderBookEntriesView(copy.copy(self._order_book.asks))
 
     @property
     def recent_trades(self) -> Iterator[Trade]:
