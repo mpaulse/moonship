@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -126,13 +126,20 @@ class LunoClient(AbstractWebClient):
             raise MarketException(
                 f"Could not retrieve trades trades for {self.market.symbol}", self.market.name) from e
 
-    async def _get_trades(self, from_timestamp_excl: Timestamp = None) -> list[Trade]:
+    async def _get_trades(
+        self,
+        from_timestamp_excl: Timestamp = None,
+        from_sequence_num_incl: int = None,
+        limit: int = GET_TRADES_MAX_LIMIT
+    ) -> list[Trade]:
         params = {
             "pair": self.market.symbol,
-            "limit": GET_TRADES_MAX_LIMIT
+            "limit": limit
         }
         if from_timestamp_excl is not None:
             params["since"] = int(from_timestamp_excl.timestamp() * 1000)
+        if from_sequence_num_incl is not None:
+            params["after_seq"] = from_sequence_num_incl
         async with self.limiter:
             async with self.http_session.get(f"{API_BASE_URL}/trades", params=params) as rsp:
                 await self.handle_error_response(rsp)
@@ -150,6 +157,15 @@ class LunoClient(AbstractWebClient):
                                     quantity=to_amount(data.get("volume")),
                                     taker_action=OrderAction.BUY if data.get("is_buy") is True else OrderAction.SELL))
                 return trades
+
+    async def _get_trade(self, trade_id: str) -> Trade | None:
+        trades = await self._get_trades(from_sequence_num_incl=int(trade_id), limit=1)
+        # Sometimes an entire list is returned in descending order starting from a later trade,
+        # even though only one specific trade is requested.
+        for trade in trades:
+            if trade.id == trade_id:
+                return trade
+        return None
 
     async def get_candles(self, period: CandlePeriod, from_time: Timestamp = None) -> list[Candle]:
         params = {
@@ -354,27 +370,58 @@ class LunoClient(AbstractWebClient):
     def _on_trade_stream_events(self, events: list[dict], timestamp: Timestamp) -> None:
         if isinstance(events, list):
             bids = self.market.bids
+            asks = self.market.asks
             for data in events:
                 if isinstance(data, dict):
                     quantity = to_amount(data.get("base"))
-                    price = to_amount(data.get("counter")) / quantity
+                    price = round_amount(to_amount(data.get("counter")) / quantity, self.market.quote_asset_precision)
                     maker_order_id = data.get("maker_order_id")
+                    taker_action: OrderAction | None = None
                     bids_entry = bids.get(price)
-                    taker_action = \
-                        OrderAction.SELL if bids_entry is not None and maker_order_id in bids_entry \
-                        else OrderAction.BUY
-                    self.market.raise_event(
-                        TradeEvent(
-                            timestamp=timestamp,
-                            trade=Trade(
-                                id=str(data.get("sequence")),
+                    if bids_entry is not None and maker_order_id in bids_entry:
+                        taker_action = OrderAction.SELL
+                    else:
+                        asks_entry = asks.get(price)
+                        if asks_entry is not None and maker_order_id in asks_entry:
+                            taker_action = OrderAction.BUY
+                    if taker_action is None:
+                        asyncio.create_task(
+                            self._lookup_trade_and_raise_event(
+                                str(data.get("sequence")),
+                                maker_order_id,
+                                data.get("taker_order_id")))
+                    else:
+                        self.market.raise_event(
+                            TradeEvent(
                                 timestamp=timestamp,
-                                symbol=self.market.symbol,
-                                quantity=quantity,
-                                price=price,
-                                taker_action=taker_action),
-                            maker_order_id=maker_order_id,
-                            taker_order_id=data.get("taker_order_id")))
+                                trade=Trade(
+                                    id=str(data.get("sequence")),
+                                    timestamp=timestamp,
+                                    symbol=self.market.symbol,
+                                    quantity=quantity,
+                                    price=price,
+                                    taker_action=taker_action),
+                                maker_order_id=maker_order_id,
+                                taker_order_id=data.get("taker_order_id")))
+
+    async def _lookup_trade_and_raise_event(
+        self,
+        trade_id: str,
+        maker_order_id: str,
+        taker_order_id: str,
+    ) -> None:
+        # Might be timing issues at the exchange, so wait a second before doing the lookup.
+        await asyncio.sleep(1)
+        trade = await self._get_trade(trade_id)
+        if trade is not None:
+            self.market.raise_event(
+                TradeEvent(
+                    timestamp=trade.timestamp,
+                    trade=trade,
+                    maker_order_id=maker_order_id,
+                    taker_order_id=taker_order_id))
+        else:
+            self.logger.warning(f"Received notification of trade {trade_id}, but no such trade found at the exchange")
 
     def _on_order_book_entry_added_stream_event(self, event: dict, timestamp: Timestamp) -> None:
         if isinstance(event, dict):
