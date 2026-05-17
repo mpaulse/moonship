@@ -51,11 +51,12 @@ class WebClientStreamParameters:
 class AbstractWebClient(MarketClient, abc.ABC):
 
     def __init__(
-            self,
-            market_name: str,
-            app_config: Config,
-            session_params: WebClientSessionParameters,
-            stream_params: WebClientStreamParameters | list[WebClientStreamParameters] | None = None) -> None:
+        self,
+        market_name: str,
+        app_config: Config,
+        session_params: WebClientSessionParameters,
+        stream_params: WebClientStreamParameters | list[WebClientStreamParameters] | None = None
+    ) -> None:
         super().__init__(market_name, app_config)
         self.session_params = session_params
         self.stream_params = stream_params
