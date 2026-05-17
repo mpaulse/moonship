@@ -75,10 +75,7 @@ class ValrClient(AbstractWebClient):
             market_name,
             app_config,
             WebClientSessionParameters(headers=headers),
-            [
-                WebClientStreamParameters(url=f"{STREAM_BASE_URL}/ws/account", headers=headers),
-                WebClientStreamParameters(url=f"{STREAM_BASE_URL}/ws/trade", headers=headers)
-            ])
+            WebClientStreamParameters(url=f"{STREAM_BASE_URL}/ws/trade", headers=headers))
 
     async def close(self) -> None:
         await super().close()
@@ -507,6 +504,7 @@ class ValrClient(AbstractWebClient):
                     self._on_trade_stream_event(data)
 
     def _on_order_book_stream_event(self, data: dict[str, Any]) -> None:
+        # TODO: Switch to full (non-aggregated) order book stream
         bids = self._get_orders_from_stream(OrderAction.BUY, data.get("Bids"))
         asks = self._get_orders_from_stream(OrderAction.SELL, data.get("Asks"))
         if len(self.market.bids) == 0 and len(self.market.asks) == 0:
