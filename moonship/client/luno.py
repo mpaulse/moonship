@@ -104,6 +104,8 @@ class LunoClient(AbstractWebClient):
     async def get_recent_trades(self, limit: int) -> list[Trade]:
         """Gets the recent trades in descending order."""
         try:
+            # TODO: Get up to the specified limit recent trades by iterating over
+            # multiple calls with each call retrieving the max limit per call
             return await self._get_trades()
         except Exception as e:
             raise MarketException(
@@ -365,7 +367,6 @@ class LunoClient(AbstractWebClient):
             self._on_trade_stream_events(msg.get("trade_updates"), timestamp)
             self._on_order_book_entry_added_stream_event(msg.get("create_update"), timestamp)
             self._on_order_book_entry_removed_stream_event(msg.get("delete_update"), timestamp)
-            self._on_order_book_entry_added_stream_event(msg.get("status_update"), timestamp)
 
     def _on_trade_stream_events(self, events: list[dict], timestamp: Timestamp) -> None:
         if isinstance(events, list):
