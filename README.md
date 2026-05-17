@@ -18,6 +18,7 @@ Fly me **To The Moon!**
   one or more moonship instances.
 - Provides a monitor service supporting email alerts based on configurable trigger conditions.
 - Supported cryptocurrency exchanges:
+  - AltCoinTrader 
   - Binance
   - Luno
   - VALR
