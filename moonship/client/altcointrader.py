@@ -163,7 +163,7 @@ class AltCoinTraderClient(AbstractWebClient):
         return f"{action.name}@{price}"
 
     def _on_trades_stream_event(self, trades: list[dict]) -> None:
-        for trade_data in trades:
+        for trade_data in reversed(trades): # Received in descending order
             if isinstance(trade_data, dict):
                 trade = self._to_trade(trade_data)
                 self.market.raise_event(
