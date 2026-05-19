@@ -346,10 +346,9 @@ class AltCoinTraderClient(AbstractWebClient):
         orders: list[FullOrderDetails] = []
         try:
             async with self.limiter:
-                path = "/orders/open"
+                path = f"/orders/open?market={self.market.symbol}"
                 async with self.http_session.get(
                         f"{API_BASE_URL}{path}",
-                        params={ "market": self.market.symbol },
                         headers=self._get_auth_headers("GET", path)) as rsp:
                     await self.handle_error_response(rsp)
                     orders_data = await rsp.json()
@@ -397,7 +396,7 @@ class AltCoinTraderClient(AbstractWebClient):
         return base_asset_balance, quote_asset_balance
 
     def _get_auth_headers(self, http_method: str, request_path: str, request_body: str = None) -> dict[str, str]:
-        timestamp = str(utc_timestamp_now_msec() / 1000)
+        timestamp = str(int(utc_timestamp_now_msec() / 1000))
         msg = f"{timestamp}\n{http_method.upper()}\n{request_path}\n"
         if request_body is not None:
             msg += request_body
