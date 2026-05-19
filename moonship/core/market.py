@@ -364,6 +364,10 @@ class Market:
             return self._order_book.asks.peekitem(0)[0] if len(self._order_book.asks) > 0 else Amount(0)
 
     @property
+    def mid_price(self) -> Amount:
+        return round_amount((self.bid_price + self.ask_price) / 2, self.quote_asset_precision)
+
+    @property
     def spread(self) -> Amount:
         return self.ask_price - self.bid_price
 
