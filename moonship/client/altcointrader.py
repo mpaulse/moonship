@@ -163,13 +163,20 @@ class AltCoinTraderClient(AbstractWebClient):
         return f"{action.name}@{price}"
 
     def _on_trades_stream_event(self, trades: list[dict]) -> None:
-        for trade_data in reversed(trades): # Received in descending order
+        # The received list is the most recent N (50) trades in descending order.
+        # Ignore the initial stream event at start-up when the connection is established,
+        # before the TradingEngine has initialized the market recent trades list.
+        last_trade = next(self.market.recent_trades, None)
+        if last_trade is None:
+            return
+        for trade_data in reversed(trades):
             if isinstance(trade_data, dict):
                 trade = self._to_trade(trade_data)
-                self.market.raise_event(
-                    TradeEvent(
-                        timestamp=trade.timestamp,
-                        trade=trade))
+                if trade.timestamp > last_trade.timestamp:
+                    self.market.raise_event(
+                        TradeEvent(
+                            timestamp=trade.timestamp,
+                            trade=trade))
 
     def _on_error_stream_event(self, msg: dict) -> None:
         error = msg.get("message")
@@ -255,7 +262,7 @@ class AltCoinTraderClient(AbstractWebClient):
                 trades_data = await rsp.json()
                 if isinstance(trades_data, list):
                     for trade in trades_data:
-                        if isinstance(data, dict):
+                        if isinstance(trade, dict):
                             trades.append(self._to_trade(trade))
         return trades
 
