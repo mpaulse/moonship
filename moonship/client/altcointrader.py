@@ -209,7 +209,7 @@ class AltCoinTraderClient(AbstractWebClient):
                     await self.handle_error_response(rsp)
                     ticker = await rsp.json()
                     return Ticker(
-                        timestamp=to_utc_timestamp(ticker.get("timestamp")),
+                        timestamp=to_utc_timestamp(ticker.get("timestamp") * 1000),
                         symbol=ticker.get("symbol"),
                         bid_price=self.market.bid_price,
                         ask_price=self.market.ask_price,
@@ -390,7 +390,7 @@ class AltCoinTraderClient(AbstractWebClient):
         return base_asset_balance, quote_asset_balance
 
     def _get_auth_headers(self, http_method: str, request_path: str, request_body: str = None) -> dict[str, str]:
-        timestamp = str(utc_timestamp_now_msec())
+        timestamp = str(utc_timestamp_now_msec() / 1000)
         msg = f"{timestamp}\n{http_method.upper()}\n{request_path}\n"
         if request_body is not None:
             msg += request_body
@@ -414,7 +414,7 @@ class AltCoinTraderClient(AbstractWebClient):
     def _to_trade(self, trade_data: dict[str, Any]) -> Trade:
         return Trade(
             id=trade_data.get("trade_id"),
-            timestamp=to_utc_timestamp(trade_data.get("timestamp")),
+            timestamp=to_utc_timestamp(trade_data.get("timestamp") * 1000),
             symbol=self.market.symbol,
             quantity=to_amount(trade_data.get("quantity")),
             price=to_amount(trade_data.get("price")),
@@ -429,7 +429,7 @@ class AltCoinTraderClient(AbstractWebClient):
             quantity_filled=to_amount(order_data.get("filled")),
             limit_price=to_amount(order_data.get("price")),
             status=self._to_order_status(order_data),
-            creation_timestamp=to_utc_timestamp(order_data.get("created_at")))
+            creation_timestamp=to_utc_timestamp(order_data.get("created_at") * 1000))
         try:
             order.time_in_force = TimeInForce(order_data.get("time_in_force"))
         except ValueError:
