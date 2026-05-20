@@ -340,6 +340,11 @@ class AltCoinTraderClient(AbstractWebClient):
                     await self.handle_error_response(rsp)
                     return rsp.status == 200
         except Exception as e:
+            if isinstance(e, HttpResponseException) \
+                    and e.status == 400 \
+                    and isinstance(e.body, dict) \
+                    and e.body.get("message") == "order is not cancelable":
+                return False
             raise MarketException("Failed to cancel order", self.market.name) from e
 
     async def get_open_orders(self) -> list[FullOrderDetails]:
