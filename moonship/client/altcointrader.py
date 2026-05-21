@@ -197,7 +197,7 @@ class AltCoinTraderClient(AbstractWebClient):
                                         symbol=market.get("symbol"),
                                         base_asset=market.get("base"),
                                         base_asset_precision=int(market.get("quantity_precision")),
-                                        base_asset_min_quantity=Amount(market.get("min_order_value")),
+                                        quote_asset_min_quantity=Amount(market.get("min_order_value")),
                                         quote_asset=market.get("quote"),
                                         quote_asset_precision=int(market.get("price_precision")),
                                         status=\

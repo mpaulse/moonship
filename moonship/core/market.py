@@ -304,7 +304,8 @@ class Market:
 
         self._base_asset = symbol[0:3] if len(symbol) == 6 else symbol
         self._base_asset_precision = 0
-        self._base_asset_min_quantity = Amount(1)
+        self._base_asset_min_quantity: Amount | None = None
+        self._quote_asset_min_quantity: Amount | None = None
         self._quote_asset = symbol[3:] if len(symbol) == 6 else None
         self._quote_asset_precision = 0
         self._current_price = Amount(0)
@@ -335,7 +336,12 @@ class Market:
 
     @property
     def base_asset_min_quantity(self) -> Amount:
-        return self._base_asset_min_quantity
+        if self._base_asset_min_quantity is not None:
+            return self._base_asset_min_quantity
+        elif self._quote_asset_min_quantity is not None:
+            return round_amount(self._quote_asset_min_quantity / self.mid_price, self._base_asset_precision)
+        else:
+            return Amount(0)
 
     @property
     def quote_asset(self) -> str:

@@ -68,10 +68,11 @@ class MarketInfo:
     symbol: str
     base_asset: str
     base_asset_precision: int
-    base_asset_min_quantity: Amount
     quote_asset: str
     quote_asset_precision: int
     status: MarketStatus
+    base_asset_min_quantity: Amount | None = None
+    quote_asset_min_quantity: Amount | None = None
 
 
 @dataclass

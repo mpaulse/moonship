@@ -87,6 +87,7 @@ class MarketManager(MarketSubscriber):
         self.market._base_asset = info.base_asset
         self.market._base_asset_precision = info.base_asset_precision
         self.market._base_asset_min_quantity = info.base_asset_min_quantity
+        self.market._quote_asset_min_quantity = info.quote_asset_min_quantity
         self.market._quote_asset = info.quote_asset
         self.market._quote_asset_precision = info.quote_asset_precision
 
