@@ -10,21 +10,35 @@ moonship:
   strategies:
     test:
       algo: moonship.algo.test.LogMarketInfo
+      auto_start: true
       markets:
         - bitcoin
     other:
-      algo: moonship.algo.other.OtherAlgo
+      algo: moonship.algo.other.MyOtherAlgo
+      auto_start: false
       markets:
         - bitcoin
-        - other
+        - solana
+    paper-trade:
+      algo: moonship.algo.other.MyOtherAlgo
+      auto_start: false
+      markets:
+        - bitcoin-paper
 
   markets:
     bitcoin:
-      symbol: BTCUSD
-      client: moonship.client.test.TestClient
-    other:
-      symbol: OTHER
-      client: moonship.client.other.OtherClient
+      symbol: BTCUSDT
+      client: moonship.client.binance.BinanceClient
+      candle_period: 60
+    bitcoin-paper:
+      symbol: BTCUSDT
+      client: moonship.client.paper.PaperTradingClient
+      real_client: moonship.client.binance.BinanceClient
+      candle_period: 60
+    solana:
+      symbol: SOLUSDT
+      client: moonship.client.binance.BinanceClient
+      candle_period: 60
 
   redis:
     url: rediss://:password@localhost:6379
