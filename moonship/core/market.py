@@ -56,7 +56,7 @@ __all__ = [
 
 @dataclass
 class MarketEvent:
-    timestamp: Timestamp = Timestamp.now(tz=timezone.utc)
+    timestamp: Timestamp = field(default_factory=lambda: Timestamp.now(tz=timezone.utc))
     market_name: str = None
     symbol: str = None
 
