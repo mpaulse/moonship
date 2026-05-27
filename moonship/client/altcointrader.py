@@ -311,6 +311,11 @@ class AltCoinTraderClient(AbstractWebClient):
                         data=request) as rsp:
                     await self.handle_error_response(rsp)
                     order.id = (await rsp.json()).get("order_id")
+                    # Similar to cancel_order(), work around concurrency issues at AltCoinTrader by
+                    # adding a small delay after order placement to prevent funds reserved for the
+                    # order potentially getting stuck if the order is cancelled in quick succession
+                    # afterwards.
+                    await asyncio.sleep(1)
                     return order.id
         except Exception as e:
             raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
@@ -338,7 +343,14 @@ class AltCoinTraderClient(AbstractWebClient):
                     if rsp.status == 404:
                         return False
                     await self.handle_error_response(rsp)
-                    return rsp.status == 200
+                    if rsp.status == 200:
+                        # Add a small delay to work around concurrency issues at AltCoinTrader where funds
+                        # reserved for the order are not immediately made available for a follow-up order
+                        # (and in some cases get stuck!) after the order has been cancelled.
+                        await asyncio.sleep(1)
+                        return True
+                    else:
+                        return False
         except Exception as e:
             if isinstance(e, HttpResponseException) \
                     and e.status == 400 \
@@ -415,11 +427,10 @@ class AltCoinTraderClient(AbstractWebClient):
         }
 
     def _get_error_code(self, e: Exception) -> MarketErrorCode:
-        # TODO: AltCoinTradier to internal error codes to mappings
-        #if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
-        #    match e.body.get("code"):
-        #        case "INSUFFICIENT_FUNDS":
-        #            return MarketErrorCode.INSUFFICIENT_FUNDS
+        if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
+            match e.body.get("code"):
+                case "INSUFFICIENT_FUNDS":
+                    return MarketErrorCode.INSUFFICIENT_FUNDS
         return MarketErrorCode.UNKNOWN
 
     def _to_trade(self, trade_data: dict[str, Any]) -> Trade:
