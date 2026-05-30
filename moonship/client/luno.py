@@ -332,9 +332,9 @@ class LunoClient(AbstractWebClient):
         except Exception as e:
             raise MarketException("Could not retrieve asset balances", self.market.name) from e
         if base_asset_balance is None:
-            raise MarketException(f"{self.market.base_asset} balance not returned by exchange", self.market.name)
+            base_asset_balance = AssetBalance(asset=self.market.base_asset, available=Amount(0), total=Amount(0))
         if quote_asset_balance is None:
-            raise MarketException(f"{self.market.quote_asset} balance not returned by exchange", self.market.name)
+            quote_asset_balance = AssetBalance(asset=self.market.quote_asset, available=Amount(0), total=Amount(0))
         return base_asset_balance, quote_asset_balance
 
     async def on_after_data_stream_connect(
