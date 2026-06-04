@@ -22,11 +22,20 @@
 #  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import aiohttp.typedefs
+import asyncio
 import enum
+import functools
+import inspect
 
-from typing import Any
+from moonship.core import utc_timestamp_now_msec
+from typing import Any, Callable, ParamSpec, TypeVar
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 __all__ = [
+    "CircuitBreaker",
+    "CircuitBreakerException",
     "ConfigException",
     "HttpResponseException",
     "MarketErrorCode",
@@ -60,6 +69,7 @@ class MarketErrorCode(enum.Enum):
     INSUFFICIENT_FUNDS = 2001
     POST_ONLY_ORDER_CANCELLED = 2002
     NO_SUCH_ORDER = 2003
+    CIRCUIT_BREAKER = 9001
 
 
 class MarketException(Exception):
@@ -80,3 +90,82 @@ class ConfigException(StartUpException):
 
 class ShutdownException(Exception):
     pass
+
+
+class CircuitBreakerException(Exception):
+    pass
+
+
+class CircuitBreakerState(enum.Enum):
+    CLOSED = 0
+    OPEN = 1
+    HALF_OPEN = 2
+
+
+class CircuitBreaker:
+
+    def __init__(
+        self,
+        error_threshold = 3,
+        error_types: type[BaseException] | list[type[BaseException]] = Exception,
+        market_error_codes: list[MarketErrorCode] | None = None,
+        backoff_period_msec = 30_000,
+        half_open_call_limit = 1,
+        synchronize_calls = False
+    ) -> None:
+        self._error_threshold = error_threshold
+        self._error_types = (error_types,) if isinstance(error_types, type) else tuple(error_types)
+        self._market_error_codes = set(market_error_codes if market_error_codes is not None else [])
+        self._backoff_period_msec = backoff_period_msec
+        self._half_open_call_limit = half_open_call_limit
+        self._synchronize_calls = synchronize_calls
+        self._open_start_time_msec: int | None = None
+        self._error_count = 0
+        self._half_open_call_count = 0
+        self._call_lock = asyncio.Lock()
+        self._state = CircuitBreakerState.CLOSED
+
+    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
+        if not inspect.iscoroutinefunction(func):
+            raise TypeError("CircuitBreaker can only be used on async functions")
+        @functools.wraps(func)
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            if self._synchronize_calls:
+                async with self._call_lock:
+                    return await self._invoke(func, args, kwargs)
+            else:
+                return await self._invoke(func, args, kwargs)
+        return wrapper
+
+    async def _invoke(self, func: Callable[P, R], args: tuple[Any, ...], kwargs: dict[str, Any]) -> R:
+        if self._state == CircuitBreakerState.OPEN:
+            open_time_msec = utc_timestamp_now_msec() - self._open_start_time_msec
+            if open_time_msec > self._backoff_period_msec:
+                self._state = CircuitBreakerState.HALF_OPEN
+                self._half_open_call_count = 1
+            else:
+                raise CircuitBreakerException(
+                    f"Circuit breaker tripped. Recovery in {self._backoff_period_msec - open_time_msec} msec")
+        elif self._state == CircuitBreakerState.HALF_OPEN:
+            if self._half_open_call_count >= self._half_open_call_limit:
+                raise CircuitBreakerException("Circuit breaker tripped, but half-open")
+            self._half_open_call_count += 1
+        try:
+            result = await func(*args, **kwargs)
+            if self._state == CircuitBreakerState.HALF_OPEN:
+                self._state = CircuitBreakerState.CLOSED
+                self._half_open_call_count = 0
+                self._error_count = 0
+            return result
+        except BaseException as e:
+            if isinstance(e, self._error_types) \
+                    or (isinstance(e, MarketException) and e.error_code in self._market_error_codes):
+                if self._state == CircuitBreakerState.HALF_OPEN:
+                    self._state = CircuitBreakerState.OPEN
+                    self._open_start_time_msec = utc_timestamp_now_msec()
+                elif self._state == CircuitBreakerState.CLOSED:
+                    self._error_count += 1
+                    if self._error_count >= self._error_threshold:
+                        self._state = CircuitBreakerState.OPEN
+                        self._open_start_time_msec = utc_timestamp_now_msec()
+            raise
