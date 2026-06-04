@@ -27,7 +27,7 @@ import enum
 import functools
 import inspect
 
-from moonship.core import utc_timestamp_now_msec
+from moonship.core.data import utc_timestamp_now_msec
 from typing import Any, Callable, ParamSpec, TypeVar
 
 P = ParamSpec("P")
@@ -69,7 +69,8 @@ class MarketErrorCode(enum.Enum):
     INSUFFICIENT_FUNDS = 2001
     POST_ONLY_ORDER_CANCELLED = 2002
     NO_SUCH_ORDER = 2003
-    CIRCUIT_BREAKER = 9001
+    INTERNAL_SERVER_ERROR = 2004
+    CIRCUIT_BREAKER_TRIPPED = 3001
 
 
 class MarketException(Exception):
@@ -106,16 +107,18 @@ class CircuitBreaker:
 
     def __init__(
         self,
-        error_threshold = 3,
-        error_types: type[BaseException] | list[type[BaseException]] = Exception,
+        exceptions: list[type[BaseException]] | None = None,
         market_error_codes: list[MarketErrorCode] | None = None,
+        http_status_codes: list[int] | None = None,
+        error_threshold = 3,
         backoff_period_msec = 30_000,
         half_open_call_limit = 1,
         synchronize_calls = False
     ) -> None:
-        self._error_threshold = error_threshold
-        self._error_types = (error_types,) if isinstance(error_types, type) else tuple(error_types)
+        self._exceptions = tuple(exceptions) if isinstance(exceptions, list) else tuple()
         self._market_error_codes = set(market_error_codes if market_error_codes is not None else [])
+        self._http_status_codes = set(http_status_codes if http_status_codes is not None else [])
+        self._error_threshold = error_threshold
         self._backoff_period_msec = backoff_period_msec
         self._half_open_call_limit = half_open_call_limit
         self._synchronize_calls = synchronize_calls
@@ -158,7 +161,8 @@ class CircuitBreaker:
                 self._error_count = 0
             return result
         except BaseException as e:
-            if isinstance(e, self._error_types) \
+            if isinstance(e, self._exceptions) \
+                    or (isinstance(e, HttpResponseException) and e.status in self._http_status_codes) \
                     or (isinstance(e, MarketException) and e.error_code in self._market_error_codes):
                 if self._state == CircuitBreakerState.HALF_OPEN:
                     self._state = CircuitBreakerState.OPEN

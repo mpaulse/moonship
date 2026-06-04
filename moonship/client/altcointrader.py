@@ -41,6 +41,7 @@ class AltCoinTraderClient(AbstractWebClient):
     market_info: dict[str, MarketInfo] = {}
     market_info_lock = asyncio.Lock()
     limiter = aiolimiter.AsyncLimiter(1000, 60)
+    order_circuit_breaker = CircuitBreaker(http_status_codes=[500], error_threshold=1, synchronize_calls=True)
 
     def __init__(self, market_name: str, app_config: Config):
         api_key = app_config.get(f"moonship.markets.{market_name}.api_key")
@@ -271,6 +272,13 @@ class AltCoinTraderClient(AbstractWebClient):
         return []
 
     async def place_order(self, order: MarketOrder | LimitOrder) -> str:
+        try:
+            return await self._place_order(order)
+        except Exception as e:
+            raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
+
+    @order_circuit_breaker
+    async def _place_order(self, order: MarketOrder | LimitOrder) -> str:
         request = {
             "market": self.market.symbol,
             "side": order.action.name.lower()
@@ -303,22 +311,19 @@ class AltCoinTraderClient(AbstractWebClient):
                     else round_amount(order.quantity / self.market.bid_price, self.market.base_asset_precision)
                 request["quantity"] = to_amount_str(quantity)
         request = json.dumps(request, indent=None)
-        try:
-            async with self.limiter:
-                async with self.http_session.post(
-                        f"{API_BASE_URL}{path}",
-                        headers=self._get_auth_headers("POST", path, request),
-                        data=request) as rsp:
-                    await self.handle_error_response(rsp)
-                    order.id = (await rsp.json()).get("order_id")
-                    # Similar to cancel_order(), work around concurrency issues at AltCoinTrader by
-                    # adding a small delay after order placement to prevent funds reserved for the
-                    # order potentially getting stuck if the order is cancelled in quick succession
-                    # afterwards.
-                    await asyncio.sleep(1)
-                    return order.id
-        except Exception as e:
-            raise MarketException("Failed to place order", self.market.name, self._get_error_code(e)) from e
+        async with self.limiter:
+            async with self.http_session.post(
+                    f"{API_BASE_URL}{path}",
+                    headers=self._get_auth_headers("POST", path, request),
+                    data=request) as rsp:
+                await self.handle_error_response(rsp)
+                order.id = (await rsp.json()).get("order_id")
+                # Similar to cancel_order(), work around concurrency issues at AltCoinTrader by
+                # adding a small delay after order placement to prevent funds reserved for the
+                # order potentially getting stuck if the order is cancelled in quick succession
+                # afterwards.
+                await asyncio.sleep(1)
+                return order.id
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
         try:
@@ -334,6 +339,13 @@ class AltCoinTraderClient(AbstractWebClient):
             raise MarketException(f"Could not retrieve details of order {order_id}", self.market.name) from e
 
     async def cancel_order(self, order_id: str) -> bool:
+        try:
+            return await self._cancel_order(order_id)
+        except Exception as e:
+            raise MarketException("Failed to cancel order", self.market.name, self._get_error_code(e)) from e
+
+    @order_circuit_breaker
+    async def _cancel_order(self, order_id: str) -> bool:
         try:
             async with self.limiter:
                 path = f"/orders/{order_id}"
@@ -357,7 +369,7 @@ class AltCoinTraderClient(AbstractWebClient):
                     and isinstance(e.body, dict) \
                     and e.body.get("message") == "order is not cancelable":
                 return False
-            raise MarketException("Failed to cancel order", self.market.name) from e
+            raise
 
     async def get_open_orders(self) -> list[FullOrderDetails]:
         orders: list[FullOrderDetails] = []
@@ -429,8 +441,12 @@ class AltCoinTraderClient(AbstractWebClient):
     def _get_error_code(self, e: Exception) -> MarketErrorCode:
         if isinstance(e, HttpResponseException) and isinstance(e.body, dict):
             match e.body.get("code"):
+                case "INTERNAL_ERROR":
+                    return MarketErrorCode.INTERNAL_SERVER_ERROR
                 case "INSUFFICIENT_FUNDS":
                     return MarketErrorCode.INSUFFICIENT_FUNDS
+        elif isinstance(e, CircuitBreakerException):
+            return MarketErrorCode.CIRCUIT_BREAKER_TRIPPED
         return MarketErrorCode.UNKNOWN
 
     def _to_trade(self, trade_data: dict[str, Any]) -> Trade:
