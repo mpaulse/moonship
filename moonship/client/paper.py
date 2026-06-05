@@ -27,7 +27,7 @@ import uuid
 
 from datetime import timezone
 from moonship.core import *
-from typing import Callable
+from typing import Callable, Iterator
 
 
 class PaperTradingClient(MarketClient, MarketSubscriber):
@@ -74,36 +74,115 @@ class PaperTradingClient(MarketClient, MarketSubscriber):
             AssetBalance(asset=self.market.quote_asset,total=Amount(0), available=Amount(0))
 
     async def place_order(self, order: MarketOrder | LimitOrder) -> str:
+        quantity_filled = Amount(0)
+        quote_quantity_filled = Amount(0)
         if isinstance(order, LimitOrder):
-            price = order.price
+            if order.post_only \
+                    and ((order.action == OrderAction.BUY and order.price >= self.market.ask_price)
+                         or (order.action == OrderAction.SELL and order.price <= self.market.bid_price)):
+                raise MarketException(
+                    "Post-only limit order would have matched",
+                    self.market.name,
+                    MarketErrorCode.POST_ONLY_ORDER_CANCELLED)
+            quantity = order.quantity
+            quote_quantity = round_amount(order.price * order.quantity, self.market.quote_asset_precision)
+            if order.time_in_force in [TimeInForce.IMMEDIATE_OR_CANCEL or TimeInForce.FILL_OR_KILL]:
+                available_quantity = self._get_available_order_book_quantity(order.action, order.price)
+                if available_quantity < order.quantity:
+                    if order.time_in_force == TimeInForce.FILL_OR_KILL:
+                        status = OrderStatus.CANCELLED
+                    else:
+                        status = OrderStatus.CANCELLED_AND_PARTIALLY_FILLED
+                        quantity_filled = available_quantity
+                        quote_quantity_filled = round_amount(order.price * quantity_filled, self.market.quote_asset_precision)
+                else:
+                    status = OrderStatus.FILLED
+                    quantity_filled = quantity
+                    quote_quantity_filled = quote_quantity_filled
+            else:
+                status = OrderStatus.PENDING
         else:
-            price = self.market.ask_price if order.action == OrderAction.BUY else self.market.bid_price
-        quantity = \
-            order.quantity if isinstance(order, LimitOrder) or order.is_base_quantity \
-            else order.quantity / price
-        quote_quantity = \
-            order.quantity if isinstance(order, MarketOrder) and not order.is_base_quantity \
-            else quantity * price
+            price, quantity_filled = \
+                self._get_market_order_fill_price_and_quantity(
+                    order.action,
+                    order.quantity,
+                    order.is_base_quantity)
+            quote_quantity_filled = round_amount(quantity_filled * price, self.market.quote_asset_precision)
+            if order.is_base_quantity:
+                quantity = order.quantity
+                quote_quantity = round_amount(quantity * price, self.market.quote_asset_precision)
+            else:
+                quote_quantity = order.quantity
+                quantity = round_amount(quote_quantity / price, self.market.base_asset_precision)
+            status = \
+                OrderStatus.CANCELLED_AND_PARTIALLY_FILLED if quantity_filled < quantity \
+                else OrderStatus.FILLED
         order_details = FullOrderDetails(
             id=str(uuid.uuid4()),
             symbol=self.market.symbol,
             action=order.action,
             quantity=quantity,
+            quantity_filled=quantity_filled,
             quote_quantity=quote_quantity,
+            quote_quantity_filled=quote_quantity_filled,
             limit_price=order.price if isinstance(order, LimitOrder) else Amount(0),
             time_in_force=order.time_in_force if isinstance(order, LimitOrder) else None,
             creation_timestamp=Timestamp.now(tz=timezone.utc),
-            status=OrderStatus.PENDING)
+            status=status)
         self._orders[order_details.id] = order_details
-        if isinstance(order, MarketOrder):
-            asyncio.create_task(self._fill_order(order_details))
+        if status != OrderStatus.PENDING:
+            asyncio.create_task(self._complete_order(order_details, status))
         return order_details.id
 
-    async def _fill_order(self, order_details: FullOrderDetails) -> None:
-        order_details.status = OrderStatus.FILLED
-        order_details.quantity_filled = order_details.quantity
+    def _get_available_order_book_quantity(self, action: OrderAction, price: Amount) -> Amount:
+        quantity = Amount(0)
+        entries: Iterator[OrderBookEntry] = \
+            iter(self.market.asks.values()) if action == OrderAction.BUY \
+            else reversed(self.market.bids.values())
+        for entry in entries:
+            if (action == OrderAction.BUY and price < entry.price) \
+                  or (action == OrderAction.SELL and price > entry.price):
+                break
+            quantity += entry.quantity
+        return quantity
+
+    def _get_market_order_fill_price_and_quantity(
+        self,
+        action: OrderAction,
+        order_amount: Amount,
+        order_amount_is_base: bool
+    ) -> tuple[Amount, Amount]:
+        total_quantity = Amount(0)
+        total_quote_quantity = Amount(0)
+        entries: Iterator[OrderBookEntry] = \
+            iter(self.market.asks.values()) if action == OrderAction.BUY \
+            else reversed(self.market.bids.values())
+        for entry in entries:
+            quote_quantity = entry.quantity * entry.price
+            if order_amount_is_base and total_quantity + entry.quantity >= order_amount:
+                rem_amount = order_amount - total_quantity
+                total_quantity += rem_amount
+                total_quote_quantity += round_amount(rem_amount * entry.price, self.market.quote_asset_precision)
+            elif not order_amount_is_base and total_quote_quantity + quote_quantity >= order_amount:
+                rem_amount = order_amount - total_quote_quantity
+                total_quote_quantity += rem_amount
+                total_quantity += round_amount(rem_amount / entry.price, self.market.base_asset_precision)
+                break
+            total_quantity += entry.quantity
+            total_quote_quantity += quote_quantity
+        return round_amount(total_quote_quantity / total_quantity, self.market.quote_asset_precision), total_quantity
+
+    async def _complete_order(
+        self,
+        order_details: FullOrderDetails,
+        status: OrderStatus = OrderStatus.FILLED
+    ) -> None:
+        order_details.status = status
+        if order_details.quantity_filled == 0:
+            order_details.quantity_filled = order_details.quantity
         order_details.quantity_filled_fee = Amount(0)
-        order_details.quote_quantity_filled = order_details.quote_quantity_filled
+        if order_details.quote_quantity_filled == 0:
+            order_details.quote_quantity_filled = order_details.quote_quantity
         order_details.quote_quantity_filled_fee = Amount(0)
         is_limit_order = order_details.limit_price > 0
         taker_action = order_details.action
@@ -156,4 +235,4 @@ class PaperTradingClient(MarketClient, MarketSubscriber):
                 and order.limit_price > 0 \
                 and ((order.action == OrderAction.BUY and buy_check_price <= order.limit_price)
                     or (order.action == OrderAction.SELL and sell_check_price >= order.limit_price)):
-                await self._fill_order(order)
+                await self._complete_order(order)

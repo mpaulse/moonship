@@ -151,8 +151,8 @@ class FullOrderDetails(AbstractOrder):
     quantity_filled_fee: Amount = Amount(0)
     quote_quantity_filled: Amount = Amount(0)
     quote_quantity_filled_fee: Amount = Amount(0)
-    creation_timestamp: Timestamp = None
-    time_in_force: TimeInForce = None
+    creation_timestamp: Timestamp | None = None
+    time_in_force: TimeInForce | None = None
 
 
 class Rounding(Enum):
