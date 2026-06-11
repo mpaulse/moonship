@@ -339,7 +339,8 @@ class Market:
         if self._base_asset_min_quantity is not None:
             return self._base_asset_min_quantity
         elif self._quote_asset_min_quantity is not None:
-            return round_amount(self._quote_asset_min_quantity / self.mid_price, self._base_asset_precision)
+            # Use the bid price instead of the mid price to give an upper estimate of the base asset minimum quantity
+            return round_amount(self._quote_asset_min_quantity / self.bid_price, self._base_asset_precision)
         else:
             return Amount(0)
 
