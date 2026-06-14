@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -64,6 +64,9 @@ async def init_redis(config: Config) -> aioredis.Redis:
             ssl_verify_cert = config.get("moonship.redis.ssl_verify_cert", default=True)
             options["ssl_cert_reqs"] = "required" if ssl_verify_cert else None
             options["ssl_check_hostname"] = ssl_verify_cert
+        protocol = config.get("moonship.redis.protocol")
+        if isinstance(protocol, int):
+            options["protocol"] = protocol
         redis = await aioredis.from_url(url, **options)
     redis_ref_count += 1
     return redis
