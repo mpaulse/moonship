@@ -265,7 +265,10 @@ class RedisMessageBus(MessageBus):
 
     async def _listen(self) -> None:
         try:
-            async for msg in self._pubsub.listen():
+            while True:
+                msg = await self._pubsub.get_message(timeout=None)
+                if msg is None:
+                    continue
                 logger.debug(f"Message received: [{msg['channel']}] {msg['data']}")
                 handlers = self._channel_handlers.get(msg["channel"])
                 if handlers is not None:

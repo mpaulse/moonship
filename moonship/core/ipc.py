@@ -1,4 +1,4 @@
-#  Copyright (c) 2025 Marlon Paulse
+#  Copyright (c) 2026 Marlon Paulse
 #
 #  Redistribution and use in source and binary forms, with or without
 #  modification, are permitted provided that the following conditions are met:
@@ -382,7 +382,7 @@ class MessageBus(abc.ABC):
         recv_msgs: list[dict[str, Any]] = []
         recv_futures: list[asyncio.Future] = []
         for i in range(0, recv_count):
-            recv_futures.append(asyncio.get_event_loop().create_future())
+            recv_futures.append(asyncio.get_running_loop().create_future())
         self._recv_futures[msg["id"]] = recv_futures
         try:
             await self.publish(msg, send_channel)
