@@ -58,7 +58,8 @@ async def init_redis(config: Config) -> aioredis.Redis:
         else:
             raise ConfigException("Redis URL not configured")
         options = {
-            "decode_responses": True
+            "decode_responses": True,
+            "socket_timeout": None
         }
         if url.startswith("rediss://"):
             ssl_verify_cert = config.get("moonship.redis.ssl_verify_cert", default=True)
@@ -228,11 +229,12 @@ class RedisMessageBus(MessageBus):
         self._listen_task = asyncio.create_task(self._listen())
 
     async def close(self) -> None:
+        if self._listen_task is not None:
+            self._listen_task.cancel()
+            await self._listen_task
         for channel in list(self._channel_handlers.keys()):
             await self.unsubscribe(channel)
         await self._pubsub.close()
-        if self._listen_task is not None:
-            self._listen_task.cancel()
         await close_redis()
 
     async def subscribe(self, channel: str, handler: Callable[[dict, str], Awaitable[None]]) -> None:
@@ -263,10 +265,7 @@ class RedisMessageBus(MessageBus):
 
     async def _listen(self) -> None:
         try:
-            while True:
-                msg = await self._pubsub.get_message(timeout=None)
-                if msg is None:
-                    continue
+            async for msg in self._pubsub.listen():
                 logger.debug(f"Message received: [{msg['channel']}] {msg['data']}")
                 handlers = self._channel_handlers.get(msg["channel"])
                 if handlers is not None:
