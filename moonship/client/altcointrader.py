@@ -322,7 +322,7 @@ class AltCoinTraderClient(AbstractWebClient):
                 # adding a small delay after order placement to prevent funds reserved for the
                 # order potentially getting stuck if the order is cancelled in quick succession
                 # afterwards.
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 return order.id
 
     async def get_order(self, order_id: str) -> FullOrderDetails:
@@ -359,7 +359,7 @@ class AltCoinTraderClient(AbstractWebClient):
                         # Add a small delay to work around concurrency issues at AltCoinTrader where funds
                         # reserved for the order are not immediately made available for a follow-up order
                         # (and in some cases get stuck!) after the order has been cancelled.
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(2)
                         return True
                     else:
                         return False
