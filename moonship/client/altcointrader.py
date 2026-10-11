@@ -284,17 +284,10 @@ class AltCoinTraderClient(AbstractWebClient):
             "side": order.action.name.lower()
         }
         if isinstance(order, LimitOrder):
-            # Post-only limit orders not natively supported by AltCoinTrader!!!
-            if order.post_only \
-                and ((order.action == OrderAction.BUY and order.price >= self.market.ask_price)
-                    or (order.action == OrderAction.SELL and order.price <= self.market.bid_price)):
-                raise MarketException(
-                    "Post-only limit order would have matched",
-                    self.market.name,
-                    MarketErrorCode.POST_ONLY_ORDER_CANCELLED)
             path = "/orders"
             request["price"] = to_amount_str(order.price)
             request["quantity"] = to_amount_str(order.quantity)
+            request["post_only"] = order.post_only
             request["time_in_force"] = order.time_in_force.value
         else:
             path = "/orders/market"
@@ -445,6 +438,8 @@ class AltCoinTraderClient(AbstractWebClient):
                     return MarketErrorCode.INTERNAL_SERVER_ERROR
                 case "INSUFFICIENT_FUNDS":
                     return MarketErrorCode.INSUFFICIENT_FUNDS
+                case "POST_ONLY_WOULD_CROSS":
+                    return MarketErrorCode.POST_ONLY_ORDER_CANCELLED
         elif isinstance(e, CircuitBreakerException):
             return MarketErrorCode.CIRCUIT_BREAKER_TRIPPED
         return MarketErrorCode.UNKNOWN
