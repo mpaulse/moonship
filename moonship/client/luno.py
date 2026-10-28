@@ -54,6 +54,13 @@ class LunoClient(AbstractWebClient):
             api_secret = app_config.get("moonship.luno.api_secret")
             if not isinstance(api_secret, str):
                 raise ConfigException("Luno API secret not configured")
+        self.account_type = app_config.get(f"moonship.markets.{market_name}.account_type")
+        if self.account_type is None:
+            self.account_type = "SPOT"
+        elif self.account_type not in ["SPOT", "SPOT_MARGIN"]:
+            raise ConfigException(f"Invalid account type specified for {market_name} market: {self.account_type}")
+        self.base_asset_account_id = None
+        self.quote_asset_account_id = None
         self.data_stream_seq_num = -1
         super().__init__(
             market_name,
@@ -63,7 +70,7 @@ class LunoClient(AbstractWebClient):
             WebClientStreamParameters(
                 url=f"{STREAM_BASE_URL}/{app_config.get(f'moonship.markets.{market_name}.symbol')}"))
 
-    async def get_market_info(self, use_cached=True) -> MarketInfo:
+    async def get_market_info(self, use_cached= True) -> MarketInfo:
         async with self.market_info_lock:
             if not use_cached or self.market.symbol not in self.market_info:
                 try:
@@ -206,8 +213,12 @@ class LunoClient(AbstractWebClient):
             raise MarketException(f"Could not retrieve candles for {self.market.symbol}", self.market.name) from e
 
     async def place_order(self, order: MarketOrder | LimitOrder) -> str:
+        if self.base_asset_account_id is None or self.quote_asset_account_id is None:
+            await self.get_asset_balances()
         request = {
-            "pair": self.market.symbol
+            "pair": self.market.symbol,
+            "base_account_id": self.base_asset_account_id,
+            "counter_account_id": self.quote_asset_account_id
         }
         if isinstance(order, LimitOrder):
             order_type = "postorder"
@@ -309,6 +320,7 @@ class LunoClient(AbstractWebClient):
     async def get_asset_balances(self) -> tuple[AssetBalance, AssetBalance]:
         params = {
             "assets": [self.market.base_asset, self.market.quote_asset],
+            "account_type": self.account_type
         }
         base_asset_balance: AssetBalance | None = None
         quote_asset_balance: AssetBalance | None = None
@@ -327,8 +339,10 @@ class LunoClient(AbstractWebClient):
                                 balance = AssetBalance(asset=balance_data.get("asset"), available=available, total=total)
                                 if balance.asset == self.market.base_asset:
                                     base_asset_balance = balance
+                                    self.base_asset_account_id = balance_data.get("account_id")
                                 elif balance.asset == self.market.quote_asset:
                                     quote_asset_balance = balance
+                                    self.quote_asset_account_id = balance_data.get("account_id")
         except Exception as e:
             raise MarketException("Could not retrieve asset balances", self.market.name) from e
         if base_asset_balance is None:
